@@ -1,0 +1,1302 @@
+"""Project-neutral publication primitives for COMS.
+
+This module contains deterministic publication mechanics only. Project
+publication policy is supplied through COMS configuration.
+
+The initial publication primitive is construction of immutable release
+version IRIs from one configured product release-IRI pattern and one validated
+formal release context.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from string import Formatter
+from typing import get_args
+
+from .config.model import (
+    AnnotationObjectKind,
+    ProductDefinition,
+    ProductGraph,
+    ProjectConfig,
+    PublicationAnnotationRule,
+)
+from .release_context import (
+    FormalReleaseContext,
+    validate_formal_release_context,
+)
+
+
+_RELEASE_IDENTIFIER_FIELD = "release_identifier"
+
+
+_ANNOTATION_OBJECT_KINDS = frozenset(
+    get_args(AnnotationObjectKind)
+)
+
+
+@dataclass(frozen=True, order=True)
+class OntologyAnnotation:
+    """One ordered project-neutral ontology annotation value.
+
+    This value object contains no project policy about which predicates should
+    occur, what order they should occur in, or which configuration fields
+    supply their values.
+    """
+
+    predicate_iri: str
+    object_kind: AnnotationObjectKind
+    value: str
+    language: str | None = None
+    datatype_iri: str | None = None
+
+
+@dataclass(frozen=True, order=True)
+class PublicationIssue:
+    """One deterministic publication-policy issue."""
+
+    code: str
+    field: str
+    message: str
+
+
+class PublicationError(ValueError):
+    """Raised when configured publication policy cannot be applied."""
+
+    def __init__(
+        self,
+        issues: tuple[PublicationIssue, ...],
+    ) -> None:
+        ordered = tuple(
+            sorted(
+                issues,
+                key=lambda issue: (
+                    issue.code,
+                    issue.field,
+                    issue.message,
+                ),
+            )
+        )
+
+        self.issues = ordered
+
+        super().__init__(
+            "\n".join(
+                f"{issue.code}: "
+                f"{issue.field}: "
+                f"{issue.message}"
+                for issue in ordered
+            )
+        )
+
+
+def ontology_annotation_issues(
+    annotation: OntologyAnnotation,
+) -> tuple[PublicationIssue, ...]:
+    """Return deterministic structural issues for one ontology annotation.
+
+    This function validates the internal term-shape contract only. It does
+    not validate IRI syntax, language-tag syntax, vocabulary policy, or
+    project publication policy.
+    """
+
+    issues: list[PublicationIssue] = []
+
+    if annotation.object_kind not in _ANNOTATION_OBJECT_KINDS:
+        issues.append(
+            PublicationIssue(
+                code="INVALID_ANNOTATION_OBJECT_KIND",
+                field="ontology_annotation.object_kind",
+                message=(
+                    "expected one of: "
+                    + ", ".join(
+                        sorted(
+                            _ANNOTATION_OBJECT_KINDS
+                        )
+                    )
+                ),
+            )
+        )
+
+        return tuple(issues)
+
+    if annotation.object_kind == "iri":
+        if annotation.language is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "IRI objects cannot have a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_NOT_ALLOWED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "IRI objects cannot have a datatype"
+                    ),
+                )
+            )
+
+    elif annotation.object_kind == "plain_literal":
+        if annotation.language is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "plain literals cannot have a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_NOT_ALLOWED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "plain literals cannot have a datatype"
+                    ),
+                )
+            )
+
+    elif annotation.object_kind == "language_literal":
+        if annotation.language in {
+            None,
+            "",
+        }:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_REQUIRED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "language literals require a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_NOT_ALLOWED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "language literals cannot have a datatype"
+                    ),
+                )
+            )
+
+    elif annotation.object_kind == "typed_literal":
+        if annotation.language is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "typed literals cannot have a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri in {
+            None,
+            "",
+        }:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_REQUIRED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "typed literals require a datatype IRI"
+                    ),
+                )
+            )
+
+    return tuple(
+        sorted(
+            set(issues),
+            key=lambda issue: (
+                issue.code,
+                issue.field,
+                issue.message,
+            ),
+        )
+    )
+
+
+def render_annotation_object_turtle(
+    annotation: OntologyAnnotation,
+) -> str:
+    """Render one annotation object as deterministic Turtle syntax.
+
+    Predicate rendering and prefix compaction are deliberately outside this
+    primitive. IRI and language-tag syntax validation also remain separate
+    validation concerns.
+    """
+
+    issues = ontology_annotation_issues(
+        annotation
+    )
+
+    if issues:
+        raise PublicationError(
+            issues
+        )
+
+    if annotation.object_kind == "iri":
+        return (
+            f"<{annotation.value}>"
+        )
+
+    encoded = json.dumps(
+        annotation.value,
+        ensure_ascii=False,
+    )
+
+    if annotation.object_kind == "plain_literal":
+        return encoded
+
+    if annotation.object_kind == "language_literal":
+        assert annotation.language is not None
+
+        return (
+            encoded
+            + f"@{annotation.language}"
+        )
+
+    if annotation.object_kind == "typed_literal":
+        assert annotation.datatype_iri is not None
+
+        return (
+            encoded
+            + f"^^<{annotation.datatype_iri}>"
+        )
+
+    raise AssertionError(
+        "validated annotation has unsupported object kind"
+    )
+
+
+def _pattern_field(
+    product: ProductDefinition,
+) -> str:
+    return (
+        f"products.{product.product_key}."
+        "release_iri_pattern"
+    )
+
+
+def release_iri_pattern_issues(
+    product: ProductDefinition,
+) -> tuple[PublicationIssue, ...]:
+    """Return deterministic issues for one configured release-IRI pattern.
+
+    A COMS release-IRI pattern is the complete desired version IRI template.
+    It must contain exactly one unformatted ``{release_identifier}``
+    replacement field. No other replacement fields are framework-defined.
+    """
+
+    field = _pattern_field(product)
+    pattern = product.release_iri_pattern
+
+    if pattern is None or pattern == "":
+        return (
+            PublicationIssue(
+                code="MISSING_RELEASE_IRI_PATTERN",
+                field=field,
+                message=(
+                    "formal publication requires a "
+                    "release_iri_pattern"
+                ),
+            ),
+        )
+
+    try:
+        parsed = tuple(
+            Formatter().parse(pattern)
+        )
+    except ValueError as exc:
+        return (
+            PublicationIssue(
+                code="MALFORMED_RELEASE_IRI_PATTERN",
+                field=field,
+                message=str(exc),
+            ),
+        )
+
+    issues: list[PublicationIssue] = []
+    release_identifier_count = 0
+
+    for (
+        _literal,
+        field_name,
+        format_spec,
+        conversion,
+    ) in parsed:
+        if field_name is None:
+            continue
+
+        if field_name != _RELEASE_IDENTIFIER_FIELD:
+            issues.append(
+                PublicationIssue(
+                    code="UNSUPPORTED_RELEASE_IRI_FIELD",
+                    field=field,
+                    message=(
+                        "unsupported replacement field: "
+                        f"{field_name}"
+                    ),
+                )
+            )
+            continue
+
+        release_identifier_count += 1
+
+        if format_spec:
+            issues.append(
+                PublicationIssue(
+                    code=(
+                        "UNSUPPORTED_RELEASE_IRI_FORMATTING"
+                    ),
+                    field=field,
+                    message=(
+                        "release_identifier does not "
+                        "support a format specification"
+                    ),
+                )
+            )
+
+        if conversion:
+            issues.append(
+                PublicationIssue(
+                    code=(
+                        "UNSUPPORTED_RELEASE_IRI_CONVERSION"
+                    ),
+                    field=field,
+                    message=(
+                        "release_identifier does not "
+                        "support a conversion"
+                    ),
+                )
+            )
+
+    if release_identifier_count != 1:
+        issues.append(
+            PublicationIssue(
+                code=(
+                    "RELEASE_IDENTIFIER_PLACEHOLDER_COUNT"
+                ),
+                field=field,
+                message=(
+                    "release_iri_pattern must contain "
+                    "exactly one {release_identifier} "
+                    "replacement field"
+                ),
+            )
+        )
+
+    return tuple(
+        sorted(
+            set(issues),
+            key=lambda issue: (
+                issue.code,
+                issue.field,
+                issue.message,
+            ),
+        )
+    )
+
+
+def release_version_iri(
+    product: ProductDefinition,
+    context: FormalReleaseContext,
+) -> str:
+    """Build one deterministic immutable product version IRI.
+
+    Formal release context validation remains authoritative in
+    ``coms.release_context``. This function does not validate IRI syntax or
+    dereference any resource.
+    """
+
+    validated = validate_formal_release_context(
+        context
+    )
+
+    issues = release_iri_pattern_issues(
+        product
+    )
+
+    if issues:
+        raise PublicationError(
+            issues
+        )
+
+    pattern = product.release_iri_pattern
+
+    assert pattern is not None
+
+    return pattern.format(
+        release_identifier=(
+            validated.release_identifier
+        )
+    )
+
+
+def _product_import_target(
+    source: ProductDefinition,
+    graph: ProductGraph,
+    imported_key: str,
+    index: int,
+) -> ProductDefinition:
+    """Resolve one governed product-import reference without inference."""
+
+    matches = tuple(
+        product
+        for product in graph.products
+        if product.product_key == imported_key
+    )
+
+    field = (
+        f"products.{source.product_key}."
+        f"product_imports[{index}].product_key"
+    )
+
+    if not matches:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="UNKNOWN_PRODUCT_IMPORT_TARGET",
+                    field=field,
+                    message=(
+                        "no configured product has key "
+                        f"{imported_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    if len(matches) > 1:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="AMBIGUOUS_PRODUCT_IMPORT_TARGET",
+                    field=field,
+                    message=(
+                        "more than one configured product "
+                        f"has key {imported_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    return matches[0]
+
+
+def _stable_product_import_iri(
+    target: ProductDefinition,
+) -> str:
+    """Return one governed product's stable ontology identity."""
+
+    value = target.stable_ontology_iri
+
+    if value in {
+        None,
+        "",
+    }:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="MISSING_STABLE_IMPORT_IDENTITY",
+                    field=(
+                        f"products.{target.product_key}."
+                        "stable_ontology_iri"
+                    ),
+                    message=(
+                        "governed product import requires "
+                        "a stable ontology IRI"
+                    ),
+                ),
+            )
+        )
+
+    return value
+
+
+def development_import_iris(
+    product: ProductDefinition,
+    graph: ProductGraph,
+) -> tuple[str, ...]:
+    """Resolve exact development ontology imports.
+
+    Literal ``imports`` are emitted first in configured order. Governed
+    ``product_imports`` follow in configured order and always resolve to the
+    imported product's stable ontology IRI.
+
+    ``product_dependencies`` have no ontology-import semantics.
+    """
+
+    result = list(
+        product.imports
+    )
+
+    for index, imported in enumerate(
+        product.product_imports
+    ):
+        target = _product_import_target(
+            product,
+            graph,
+            imported.product_key,
+            index,
+        )
+
+        result.append(
+            _stable_product_import_iri(
+                target
+            )
+        )
+
+    return tuple(result)
+
+
+def formal_import_iris(
+    product: ProductDefinition,
+    graph: ProductGraph,
+    context: FormalReleaseContext,
+) -> tuple[str, ...]:
+    """Resolve exact formal-release ontology imports.
+
+    Literal ``imports`` are retained exactly as configured. Governed product
+    imports resolve to either the target product's stable ontology IRI or its
+    release version IRI according to each ``formal_target``.
+
+    ``product_dependencies`` are intentionally ignored.
+    """
+
+    validated = validate_formal_release_context(
+        context
+    )
+
+    result = list(
+        product.imports
+    )
+
+    for index, imported in enumerate(
+        product.product_imports
+    ):
+        target = _product_import_target(
+            product,
+            graph,
+            imported.product_key,
+            index,
+        )
+
+        if imported.formal_target == "stable":
+            result.append(
+                _stable_product_import_iri(
+                    target
+                )
+            )
+            continue
+
+        if imported.formal_target == "release":
+            result.append(
+                release_version_iri(
+                    target,
+                    validated,
+                )
+            )
+            continue
+
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="UNSUPPORTED_PRODUCT_IMPORT_FORMAL_TARGET",
+                    field=(
+                        f"products.{product.product_key}."
+                        f"product_imports[{index}].formal_target"
+                    ),
+                    message=(
+                        "expected stable or release; got "
+                        f"{imported.formal_target!r}"
+                    ),
+                ),
+            )
+        )
+
+    return tuple(result)
+
+
+def _publication_product(
+    config: ProjectConfig,
+    product_key: str,
+) -> ProductDefinition:
+    """Resolve one configured publication product exactly."""
+
+    matches = tuple(
+        product
+        for product in config.product_graph.products
+        if product.product_key == product_key
+    )
+
+    if not matches:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="UNKNOWN_PUBLICATION_PRODUCT",
+                    field="product_key",
+                    message=(
+                        "no configured product has key "
+                        f"{product_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    if len(matches) > 1:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="AMBIGUOUS_PUBLICATION_PRODUCT",
+                    field="product_key",
+                    message=(
+                        "more than one configured product "
+                        f"has key {product_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    return matches[0]
+
+
+def _publication_product_text(
+    values: tuple,
+    product_key: str,
+    source: str,
+    field: str,
+) -> str:
+    """Resolve exactly one keyed ProductText value."""
+
+    matches = tuple(
+        value.text
+        for value in values
+        if value.product_key == product_key
+    )
+
+    if not matches:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="ANNOTATION_VALUE_SOURCE_UNAVAILABLE",
+                    field=field,
+                    message=(
+                        f"annotation value source {source} "
+                        "has no configured value for product "
+                        f"{product_key}"
+                    ),
+                ),
+            )
+        )
+
+    if len(matches) > 1:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="AMBIGUOUS_ANNOTATION_VALUE_SOURCE",
+                    field=field,
+                    message=(
+                        f"annotation value source {source} "
+                        "has more than one configured value "
+                        f"for product {product_key}"
+                    ),
+                ),
+            )
+        )
+
+    return matches[0]
+
+
+def _required_annotation_source_value(
+    value: str | None,
+    source: str,
+    field: str,
+    product_key: str | None = None,
+) -> str:
+    """Require one scalar annotation-source value."""
+
+    if value not in {
+        None,
+        "",
+    }:
+        return value
+
+    suffix = (
+        ""
+        if product_key is None
+        else f" for product {product_key}"
+    )
+
+    raise PublicationError(
+        (
+            PublicationIssue(
+                code="ANNOTATION_VALUE_SOURCE_UNAVAILABLE",
+                field=field,
+                message=(
+                    f"annotation value source {source} "
+                    f"has no configured value{suffix}"
+                ),
+            ),
+        )
+    )
+
+
+def _annotation_rule_values(
+    config: ProjectConfig,
+    product: ProductDefinition,
+    rule: PublicationAnnotationRule,
+    rule_index: int,
+    context: FormalReleaseContext | None,
+) -> tuple[str, ...]:
+    """Resolve one applicable rule to ordered lexical values."""
+
+    path = (
+        f"publication.annotation_rules[{rule_index}]"
+    )
+
+    has_source = (
+        rule.value_source is not None
+    )
+    has_fixed = (
+        rule.fixed_value is not None
+    )
+
+    if has_source == has_fixed:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="ANNOTATION_VALUE_ORIGIN_COUNT",
+                    field=path,
+                    message=(
+                        "exactly one of value_source "
+                        "and fixed_value must be configured"
+                    ),
+                ),
+            )
+        )
+
+    if rule.fixed_value is not None:
+        return (
+            rule.fixed_value,
+        )
+
+    source = rule.value_source
+    assert source is not None
+
+    field = f"{path}.value_source"
+    publication = config.publication
+
+    if source == "publication.project_title":
+        return (
+            _required_annotation_source_value(
+                publication.project_title,
+                source,
+                field,
+            ),
+        )
+
+    if source == "publication.repository_iri":
+        return (
+            _required_annotation_source_value(
+                publication.repository_iri,
+                source,
+                field,
+            ),
+        )
+
+    if source == "publication.license_iri":
+        return (
+            _required_annotation_source_value(
+                publication.license_iri,
+                source,
+                field,
+            ),
+        )
+
+    if source == "publication.creators":
+        return tuple(
+            publication.creators
+        )
+
+    if source == "publication.contributors":
+        return tuple(
+            publication.contributors
+        )
+
+    if source == "publication.development_status":
+        return (
+            _required_annotation_source_value(
+                publication.development_status,
+                source,
+                field,
+            ),
+        )
+
+    if source == "project.generated_warning":
+        return (
+            _required_annotation_source_value(
+                config.generated_warning,
+                source,
+                field,
+            ),
+        )
+
+    if source == "product.label":
+        return (
+            _publication_product_text(
+                publication.product_labels,
+                product.product_key,
+                source,
+                field,
+            ),
+        )
+
+    if source == "product.description":
+        return (
+            _publication_product_text(
+                publication.product_descriptions,
+                product.product_key,
+                source,
+                field,
+            ),
+        )
+
+    if source == "product.type":
+        return (
+            _required_annotation_source_value(
+                product.product_type,
+                source,
+                field,
+                product.product_key,
+            ),
+        )
+
+    if source == "product.stable_ontology_iri":
+        return (
+            _required_annotation_source_value(
+                product.stable_ontology_iri,
+                source,
+                field,
+                product.product_key,
+            ),
+        )
+
+    if source == "product.release_version_iri":
+        if context is None:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "ANNOTATION_FORMAL_CONTEXT_REQUIRED"
+                        ),
+                        field=field,
+                        message=(
+                            "annotation value source "
+                            "product.release_version_iri "
+                            "requires formal release context"
+                        ),
+                    ),
+                )
+            )
+
+        return (
+            release_version_iri(
+                product,
+                context,
+            ),
+        )
+
+    if source.startswith("release."):
+        if context is None:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "ANNOTATION_FORMAL_CONTEXT_REQUIRED"
+                        ),
+                        field=field,
+                        message=(
+                            f"annotation value source {source} "
+                            "requires formal release context"
+                        ),
+                    ),
+                )
+            )
+
+        release_values = {
+            "release.release_identifier": (
+                context.release_identifier
+            ),
+            "release.release_date": (
+                context.release_date
+            ),
+            "release.git_tag": (
+                context.git_tag
+            ),
+            "release.source_commit": (
+                context.source_commit
+            ),
+        }
+
+        if source in release_values:
+            return (
+                release_values[source],
+            )
+
+    raise PublicationError(
+        (
+            PublicationIssue(
+                code="UNSUPPORTED_ANNOTATION_VALUE_SOURCE",
+                field=field,
+                message=(
+                    "unsupported annotation value source: "
+                    f"{source}"
+                ),
+            ),
+        )
+    )
+
+
+def publication_annotations(
+    config: ProjectConfig,
+    product_key: str,
+    context: FormalReleaseContext | None = None,
+) -> tuple[OntologyAnnotation, ...]:
+    """Evaluate configured rules to exact ordered ontology annotations.
+
+    A missing context selects development publication. A supplied context
+    selects formal publication and is validated authoritatively before any
+    formal rule is evaluated.
+
+    Rule order is preserved. Multi-valued sources expand in configured source
+    order at the position of their rule. Product dependencies and ontology
+    imports do not participate in annotation evaluation.
+    """
+
+    product = _publication_product(
+        config,
+        product_key,
+    )
+
+    if context is None:
+        mode = "development"
+        validated_context = None
+    else:
+        mode = "formal"
+        validated_context = (
+            validate_formal_release_context(
+                context
+            )
+        )
+
+    result: list[OntologyAnnotation] = []
+
+    for index, rule in enumerate(
+        config.publication.annotation_rules
+    ):
+        path = (
+            f"publication.annotation_rules[{index}]"
+        )
+
+        if rule.product_keys and (
+            product.product_key
+            not in rule.product_keys
+        ):
+            continue
+
+        if rule.applicability not in {
+            "development",
+            "formal",
+            "both",
+        }:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "UNSUPPORTED_ANNOTATION_APPLICABILITY"
+                        ),
+                        field=f"{path}.applicability",
+                        message=(
+                            "expected development, formal, "
+                            f"or both; got {rule.applicability!r}"
+                        ),
+                    ),
+                )
+            )
+
+        applies = (
+            rule.applicability == "both"
+            or rule.applicability == mode
+        )
+
+        if not applies:
+            continue
+
+        values = _annotation_rule_values(
+            config,
+            product,
+            rule,
+            index,
+            validated_context,
+        )
+
+        for value in values:
+            annotation = OntologyAnnotation(
+                predicate_iri=rule.predicate_iri,
+                object_kind=rule.object_kind,
+                value=value,
+                language=rule.language,
+                datatype_iri=rule.datatype_iri,
+            )
+
+            issues = ontology_annotation_issues(
+                annotation
+            )
+
+            if issues:
+                raise PublicationError(
+                    issues
+                )
+
+            result.append(
+                annotation
+            )
+
+    return tuple(result)
+
+
+OWL_ONTOLOGY_IRI = (
+    "http://www.w3.org/2002/07/owl#Ontology"
+)
+
+OWL_IMPORTS_IRI = (
+    "http://www.w3.org/2002/07/owl#imports"
+)
+
+
+def _header_import_iris(
+    config: ProjectConfig,
+    product: ProductDefinition,
+    context: FormalReleaseContext | None,
+) -> tuple[str, ...]:
+    """Resolve exact header imports and reject duplicate RDF terms."""
+
+    if context is None:
+        values = development_import_iris(
+            product,
+            config.product_graph,
+        )
+    else:
+        values = formal_import_iris(
+            product,
+            config.product_graph,
+            context,
+        )
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+
+    for value in values:
+        if value in seen:
+            if value not in duplicates:
+                duplicates.append(
+                    value
+                )
+        else:
+            seen.add(
+                value
+            )
+
+    if duplicates:
+        raise PublicationError(
+            tuple(
+                PublicationIssue(
+                    code="DUPLICATE_ONTOLOGY_IMPORT",
+                    field=(
+                        f"products.{product.product_key}."
+                        "resolved_imports"
+                    ),
+                    message=(
+                        "resolved ontology import occurs "
+                        f"more than once: {value}"
+                    ),
+                )
+                for value in duplicates
+            )
+        )
+
+    return values
+
+
+def render_ontology_header_bytes(
+    config: ProjectConfig,
+    product_key: str,
+    context: FormalReleaseContext | None = None,
+) -> bytes:
+    """Render one canonical project-neutral Turtle ontology statement.
+
+    The ontology subject is always the product's stable ontology IRI.
+    Development/formal differences occur in evaluated annotations and resolved
+    imports, never by changing the ontology subject.
+
+    Serialization order is:
+
+    1. ontology declaration;
+    2. evaluated annotations in governed rule order;
+    3. one ``owl:imports`` predicate, if imports exist.
+
+    All IRIs are rendered in full. Prefix declarations and compact-name policy
+    belong to a later serialization-profile layer.
+
+    The returned byte sequence ends with exactly one LF and contains no prefix
+    block, generated-file comment, body separator, or ontology body.
+    """
+
+    product = _publication_product(
+        config,
+        product_key,
+    )
+
+    stable_ontology_iri = (
+        _required_annotation_source_value(
+            product.stable_ontology_iri,
+            "product.stable_ontology_iri",
+            (
+                f"products.{product.product_key}."
+                "stable_ontology_iri"
+            ),
+            product.product_key,
+        )
+    )
+
+    if context is None:
+        validated_context = None
+    else:
+        validated_context = (
+            validate_formal_release_context(
+                context
+            )
+        )
+
+    annotations = publication_annotations(
+        config,
+        product.product_key,
+        validated_context,
+    )
+
+    imports = _header_import_iris(
+        config,
+        product,
+        validated_context,
+    )
+
+    for annotation in annotations:
+        if annotation.predicate_iri == OWL_IMPORTS_IRI:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "RESERVED_ONTOLOGY_HEADER_PREDICATE"
+                        ),
+                        field="ontology_header.annotations",
+                        message=(
+                            "owl:imports is structural header "
+                            "policy and cannot be emitted by "
+                            "an annotation rule"
+                        ),
+                    ),
+                )
+            )
+
+    lines = [
+        (
+            f"<{stable_ontology_iri}> "
+            f"a <{OWL_ONTOLOGY_IRI}>"
+        )
+    ]
+
+    has_tail = bool(
+        annotations
+        or imports
+    )
+
+    lines[0] += (
+        " ;"
+        if has_tail
+        else " ."
+    )
+
+    for index, annotation in enumerate(
+        annotations
+    ):
+        has_following = (
+            index
+            < len(annotations) - 1
+            or bool(imports)
+        )
+
+        terminator = (
+            " ;"
+            if has_following
+            else " ."
+        )
+
+        lines.append(
+            "    "
+            f"<{annotation.predicate_iri}> "
+            f"{render_annotation_object_turtle(annotation)}"
+            f"{terminator}"
+        )
+
+    if imports:
+        first, *rest = imports
+
+        if not rest:
+            lines.append(
+                "    "
+                f"<{OWL_IMPORTS_IRI}> "
+                f"<{first}> ."
+            )
+        else:
+            lines.append(
+                "    "
+                f"<{OWL_IMPORTS_IRI}> "
+                f"<{first}>,"
+            )
+
+            for index, value in enumerate(
+                rest
+            ):
+                terminator = (
+                    " ."
+                    if index == len(rest) - 1
+                    else ","
+                )
+
+                lines.append(
+                    "        "
+                    f"<{value}>"
+                    f"{terminator}"
+                )
+
+    return (
+        "\n".join(lines)
+        + "\n"
+    ).encode(
+        "utf-8"
+    )

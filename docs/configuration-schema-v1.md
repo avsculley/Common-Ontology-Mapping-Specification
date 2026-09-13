@@ -192,6 +192,7 @@ Optional fields:
 - `stable_ontology_iri`
 - `release_iri_pattern`
 - `imports`
+- `product_imports`
 - `dependencies`
 - `inclusion_policy`
 - `permitted_vocabularies`
@@ -200,9 +201,55 @@ Optional fields:
 - `validation_profile`
 - `package_role`
 
-`imports` and `dependencies` are intentionally distinct. The former expresses
-ontology-import configuration; the latter defines the COMS product dependency
-graph.
+`release_iri_pattern`, when present, is the complete immutable version-IRI
+template for that product. Formal publication currently defines exactly one
+replacement field:
+
+`{release_identifier}`
+
+The pattern must contain that field exactly once and may not use conversion or
+format-specification syntax. All other text in the pattern is project policy.
+For example:
+
+`https://example.org/releases/{release_identifier}/alignment`
+
+COMS does not require a shared release-IRI base or a framework-defined product
+suffix. Projects may therefore encode different version-IRI structures without
+changing the framework.
+
+`imports`, `product_imports`, and `dependencies` are intentionally distinct.
+
+- `imports` contains literal ontology IRIs that are imported exactly as
+  configured.
+- `product_imports` contains explicit references to other governed COMS
+  products. Development publication resolves those references to the imported
+  product's `stable_ontology_iri`, so every referenced product must define
+  one. `formal_target` must be either `stable` or `release` and explicitly
+  determines which identity formal publication will use. A `release` target
+  additionally requires the referenced product to define
+  `release_iri_pattern`.
+- `dependencies` defines the COMS product/build dependency graph and has no
+  implicit ontology-import semantics.
+
+For example, a product may declare:
+
+    [[products.product_imports]]
+    product_key = "alignment"
+    formal_target = "release"
+
+This declaration is independent of whether `alignment` also occurs in the
+product's `dependencies` list.
+
+Publication import resolution is deterministic:
+
+1. literal `imports` are emitted first, in configured order;
+2. governed `product_imports` are emitted second, in configured order.
+
+Development publication resolves every governed product import to the target
+product's `stable_ontology_iri`. Formal publication resolves each governed
+product import according to its explicit `formal_target`.
+
+`dependencies` are never consulted when calculating ontology imports.
 
 ## Validation profiles
 
@@ -264,6 +311,84 @@ text = "Integrated mapping product for the synthetic example."
 `publication.project_title` is optional. If omitted, it defaults to
 `project.title`.
 
+Annotation rules are ordered project policy. For example:
+
+```toml
+[[publication.annotation_rules]]
+predicate_iri = "https://example.org/vocab/label"
+object_kind = "language_literal"
+applicability = "both"
+value_source = "product.label"
+language = "en"
+product_keys = ["integrated"]
+
+[[publication.annotation_rules]]
+predicate_iri = "https://example.org/vocab/released"
+object_kind = "typed_literal"
+applicability = "formal"
+value_source = "release.release_date"
+datatype_iri = "https://example.org/vocab/date"
+
+[[publication.annotation_rules]]
+predicate_iri = "https://example.org/vocab/status"
+object_kind = "iri"
+applicability = "formal"
+fixed_value = "https://example.org/status/released"
+product_keys = ["integrated"]
+```
+
+Rule order is publication order. An empty `product_keys` array applies the rule
+to every configured product.
+
+Exactly one of `value_source` and `fixed_value` must be configured.
+
+Supported `applicability` values are `development`, `formal`, and `both`.
+
+Supported value sources are:
+
+- `publication.project_title`
+- `publication.repository_iri`
+- `publication.license_iri`
+- `publication.creators`
+- `publication.contributors`
+- `publication.development_status`
+- `project.generated_warning`
+- `product.label`
+- `product.description`
+- `product.type`
+- `product.stable_ontology_iri`
+- `product.release_version_iri`
+- `release.release_identifier`
+- `release.release_date`
+- `release.git_tag`
+- `release.source_commit`
+
+The release-context sources and `product.release_version_iri` are formal-only
+sources and cannot apply to development output.
+
+Annotation value-source cardinality is explicit:
+
+- `fixed_value` is scalar and yields one annotation;
+- all value sources are scalar except `publication.creators` and
+  `publication.contributors`;
+- `publication.creators` and `publication.contributors` preserve configured
+  tuple order and later expand to one annotation per value;
+- an empty creators or contributors tuple is valid and expands to zero
+  annotations;
+- an explicitly referenced optional scalar source must be configured;
+- `product.label` and `product.description` require exactly one corresponding
+  `ProductText` record for every product to which the rule applies;
+- `product.stable_ontology_iri` requires the applicable product to define a
+  stable ontology IRI;
+- `product.release_version_iri` requires the applicable product to define a
+  release IRI pattern.
+
+Missing explicitly requested scalar values are configuration errors. They are
+not interpreted as instructions to silently omit an annotation.
+
+COMS does not assign RDF predicates to these sources. Predicates, object kinds,
+language tags, datatype IRIs, applicability, and order are project policy.
+
 Other optional publication fields are:
 
 - `stable_ontology_iris`
@@ -276,6 +401,7 @@ Other optional publication fields are:
 - `development_status`
 - `product_labels`
 - `product_descriptions`
+- `annotation_rules`
 
 ## Release
 

@@ -334,7 +334,8 @@ A product definition should include:
 - stable ontology IRI;
 - release IRI pattern;
 - product type;
-- imports;
+- literal ontology imports;
+- governed product imports;
 - product dependencies;
 - inclusion policy;
 - permitted vocabularies;
@@ -387,7 +388,8 @@ Recommended fields:
 - creator and contributor metadata;
 - development status;
 - product labels;
-- product descriptions.
+- product descriptions;
+- ordered ontology-annotation rules.
 
 ### ReleaseLayout
 

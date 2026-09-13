@@ -8,8 +8,10 @@ from coms.config import (
     PrefixBinding,
     ProductDefinition,
     ProductGraph,
+    ProductImport,
     ProductText,
     ProjectConfig,
+    PublicationAnnotationRule,
     PublicationProfile,
     ReleaseLayout,
     ValidationProfile,
@@ -103,6 +105,13 @@ class ConfigurationValidationTests(unittest.TestCase):
             product_key="alignment",
             output_path="build/alignment.ttl",
             product_type="mapping",
+            stable_ontology_iri=(
+                "https://example.org/alignment"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/alignment"
+            ),
             permitted_vocabularies=(
                 "source",
             ),
@@ -113,6 +122,13 @@ class ConfigurationValidationTests(unittest.TestCase):
             product_key="integrated",
             output_path="build/integrated.ttl",
             product_type="integrated",
+            stable_ontology_iri=(
+                "https://example.org/integrated"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/integrated"
+            ),
             product_dependencies=(
                 "alignment",
             ),
@@ -459,6 +475,614 @@ class ConfigurationValidationTests(unittest.TestCase):
         self.assertIn(
             "explicitly prohibits product",
             conflicts[1].message,
+        )
+
+    def test_product_import_reference_and_formal_target_are_validated(self):
+        config = self._config()
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="missing-product",
+                    formal_target="unsupported",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        self.assertTrue(
+            {
+                "unknown_product_import",
+                "invalid_product_import_formal_target",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_product_import_does_not_imply_product_dependency(self):
+        config = self._config()
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_dependencies=(),
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            validate_project_config(config),
+            (),
+        )
+
+    def test_product_import_target_requires_stable_ontology_iri(self):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            stable_ontology_iri=None,
+        )
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    integrated,
+                ),
+            ),
+        )
+
+        self.assertIn(
+            (
+                "product_import_target_missing_"
+                "stable_ontology_iri"
+            ),
+            self._codes(config),
+        )
+
+    def test_release_product_import_requires_release_pattern_only_for_release_target(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            release_iri_pattern=None,
+        )
+
+        release_import = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        release_config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    release_import,
+                ),
+            ),
+        )
+
+        self.assertIn(
+            (
+                "product_import_target_missing_"
+                "release_iri_pattern"
+            ),
+            self._codes(
+                release_config
+            ),
+        )
+
+        stable_import = replace(
+            release_import,
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        stable_config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    stable_import,
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            validate_project_config(
+                stable_config
+            ),
+            (),
+        )
+
+    def test_annotation_rule_enumerations_are_validated(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/predicate"
+                    ),
+                    object_kind="unsupported",
+                    applicability="sometimes",
+                    value_source="unsupported.source",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertTrue(
+            {
+                "invalid_annotation_object_kind",
+                "invalid_annotation_applicability",
+                "invalid_annotation_value_source",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_annotation_rule_requires_exactly_one_value_origin(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/one"
+                    ),
+                    object_kind="plain_literal",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/two"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.project_title"
+                    ),
+                    fixed_value="fixed",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "annotation_value_origin_count"
+        )
+
+        self.assertEqual(
+            len(issues),
+            2,
+        )
+
+    def test_annotation_rule_product_scope_is_validated(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/predicate"
+                    ),
+                    object_kind="plain_literal",
+                    fixed_value="value",
+                    product_keys=(
+                        "missing",
+                        "missing",
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertTrue(
+            {
+                "duplicate_annotation_rule_product",
+                "unknown_annotation_rule_product",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_annotation_rule_object_shape_is_validated(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/language"
+                    ),
+                    object_kind="language_literal",
+                    fixed_value="value",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/typed"
+                    ),
+                    object_kind="typed_literal",
+                    fixed_value="value",
+                    language="en",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/iri"
+                    ),
+                    object_kind="iri",
+                    fixed_value=(
+                        "https://example.org/object"
+                    ),
+                    datatype_iri=(
+                        "https://example.org/datatype"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertTrue(
+            {
+                "annotation_language_required",
+                "annotation_datatype_required",
+                "annotation_language_not_allowed",
+                "annotation_datatype_not_allowed",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_formal_only_annotation_sources_cannot_apply_to_development(
+        self,
+    ):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/released"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="both",
+                    value_source=(
+                        "release.release_identifier"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertIn(
+            (
+                "formal_only_annotation_source_"
+                "in_development"
+            ),
+            self._codes(config),
+        )
+
+    def test_publication_product_text_keys_are_unique(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            product_labels=(
+                ProductText(
+                    "integrated",
+                    "First label",
+                ),
+                ProductText(
+                    "integrated",
+                    "Second label",
+                ),
+            ),
+            product_descriptions=(
+                ProductText(
+                    "alignment",
+                    "First description",
+                ),
+                ProductText(
+                    "alignment",
+                    "Second description",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "duplicate_publication_product_text"
+        )
+
+        self.assertEqual(
+            len(issues),
+            2,
+        )
+
+        self.assertEqual(
+            {
+                issue.path
+                for issue in issues
+            },
+            {
+                "publication.product_labels",
+                "publication.product_descriptions",
+            },
+        )
+
+    def test_annotation_rule_requires_configured_optional_scalar_source(
+        self,
+    ):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            repository_iri=None,
+            license_iri=None,
+            development_status=None,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/repository"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "publication.repository_iri"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/license"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "publication.license_iri"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/status"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.development_status"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "annotation_value_source_unavailable"
+        )
+
+        self.assertEqual(
+            len(issues),
+            3,
+        )
+
+    def test_annotation_product_sources_require_values_in_rule_scope(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            stable_ontology_iri=None,
+            release_iri_pattern=None,
+        )
+
+        publication = replace(
+            config.publication,
+            product_descriptions=(),
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.label",
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/description"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "product.description"
+                    ),
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/stable"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "product.stable_ontology_iri"
+                    ),
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/release"
+                    ),
+                    object_kind="iri",
+                    applicability="formal",
+                    value_source=(
+                        "product.release_version_iri"
+                    ),
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    config.product_graph.products[1],
+                ),
+            ),
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "annotation_value_source_unavailable"
+        )
+
+        self.assertEqual(
+            len(issues),
+            4,
+        )
+
+    def test_empty_multivalued_annotation_sources_are_valid(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            creators=(),
+            contributors=(),
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/creator"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.creators"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/contributor"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.contributors"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertEqual(
+            validate_project_config(
+                config
+            ),
+            (),
         )
 
     def test_multi_product_dependency_cycle_is_reported(self):
