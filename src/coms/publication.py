@@ -19,6 +19,8 @@ from .config.model import (
     AnnotationObjectKind,
     ProductDefinition,
     ProductGraph,
+    ProjectConfig,
+    PublicationAnnotationRule,
 )
 from .release_context import (
     FormalReleaseContext,
@@ -626,5 +628,453 @@ def formal_import_iris(
                 ),
             )
         )
+
+    return tuple(result)
+
+
+def _publication_product(
+    config: ProjectConfig,
+    product_key: str,
+) -> ProductDefinition:
+    """Resolve one configured publication product exactly."""
+
+    matches = tuple(
+        product
+        for product in config.product_graph.products
+        if product.product_key == product_key
+    )
+
+    if not matches:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="UNKNOWN_PUBLICATION_PRODUCT",
+                    field="product_key",
+                    message=(
+                        "no configured product has key "
+                        f"{product_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    if len(matches) > 1:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="AMBIGUOUS_PUBLICATION_PRODUCT",
+                    field="product_key",
+                    message=(
+                        "more than one configured product "
+                        f"has key {product_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    return matches[0]
+
+
+def _publication_product_text(
+    values: tuple,
+    product_key: str,
+    source: str,
+    field: str,
+) -> str:
+    """Resolve exactly one keyed ProductText value."""
+
+    matches = tuple(
+        value.text
+        for value in values
+        if value.product_key == product_key
+    )
+
+    if not matches:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="ANNOTATION_VALUE_SOURCE_UNAVAILABLE",
+                    field=field,
+                    message=(
+                        f"annotation value source {source} "
+                        "has no configured value for product "
+                        f"{product_key}"
+                    ),
+                ),
+            )
+        )
+
+    if len(matches) > 1:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="AMBIGUOUS_ANNOTATION_VALUE_SOURCE",
+                    field=field,
+                    message=(
+                        f"annotation value source {source} "
+                        "has more than one configured value "
+                        f"for product {product_key}"
+                    ),
+                ),
+            )
+        )
+
+    return matches[0]
+
+
+def _required_annotation_source_value(
+    value: str | None,
+    source: str,
+    field: str,
+    product_key: str | None = None,
+) -> str:
+    """Require one scalar annotation-source value."""
+
+    if value not in {
+        None,
+        "",
+    }:
+        return value
+
+    suffix = (
+        ""
+        if product_key is None
+        else f" for product {product_key}"
+    )
+
+    raise PublicationError(
+        (
+            PublicationIssue(
+                code="ANNOTATION_VALUE_SOURCE_UNAVAILABLE",
+                field=field,
+                message=(
+                    f"annotation value source {source} "
+                    f"has no configured value{suffix}"
+                ),
+            ),
+        )
+    )
+
+
+def _annotation_rule_values(
+    config: ProjectConfig,
+    product: ProductDefinition,
+    rule: PublicationAnnotationRule,
+    rule_index: int,
+    context: FormalReleaseContext | None,
+) -> tuple[str, ...]:
+    """Resolve one applicable rule to ordered lexical values."""
+
+    path = (
+        f"publication.annotation_rules[{rule_index}]"
+    )
+
+    has_source = (
+        rule.value_source is not None
+    )
+    has_fixed = (
+        rule.fixed_value is not None
+    )
+
+    if has_source == has_fixed:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="ANNOTATION_VALUE_ORIGIN_COUNT",
+                    field=path,
+                    message=(
+                        "exactly one of value_source "
+                        "and fixed_value must be configured"
+                    ),
+                ),
+            )
+        )
+
+    if rule.fixed_value is not None:
+        return (
+            rule.fixed_value,
+        )
+
+    source = rule.value_source
+    assert source is not None
+
+    field = f"{path}.value_source"
+    publication = config.publication
+
+    if source == "publication.project_title":
+        return (
+            _required_annotation_source_value(
+                publication.project_title,
+                source,
+                field,
+            ),
+        )
+
+    if source == "publication.repository_iri":
+        return (
+            _required_annotation_source_value(
+                publication.repository_iri,
+                source,
+                field,
+            ),
+        )
+
+    if source == "publication.license_iri":
+        return (
+            _required_annotation_source_value(
+                publication.license_iri,
+                source,
+                field,
+            ),
+        )
+
+    if source == "publication.creators":
+        return tuple(
+            publication.creators
+        )
+
+    if source == "publication.contributors":
+        return tuple(
+            publication.contributors
+        )
+
+    if source == "publication.development_status":
+        return (
+            _required_annotation_source_value(
+                publication.development_status,
+                source,
+                field,
+            ),
+        )
+
+    if source == "project.generated_warning":
+        return (
+            _required_annotation_source_value(
+                config.generated_warning,
+                source,
+                field,
+            ),
+        )
+
+    if source == "product.label":
+        return (
+            _publication_product_text(
+                publication.product_labels,
+                product.product_key,
+                source,
+                field,
+            ),
+        )
+
+    if source == "product.description":
+        return (
+            _publication_product_text(
+                publication.product_descriptions,
+                product.product_key,
+                source,
+                field,
+            ),
+        )
+
+    if source == "product.type":
+        return (
+            _required_annotation_source_value(
+                product.product_type,
+                source,
+                field,
+                product.product_key,
+            ),
+        )
+
+    if source == "product.stable_ontology_iri":
+        return (
+            _required_annotation_source_value(
+                product.stable_ontology_iri,
+                source,
+                field,
+                product.product_key,
+            ),
+        )
+
+    if source == "product.release_version_iri":
+        if context is None:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "ANNOTATION_FORMAL_CONTEXT_REQUIRED"
+                        ),
+                        field=field,
+                        message=(
+                            "annotation value source "
+                            "product.release_version_iri "
+                            "requires formal release context"
+                        ),
+                    ),
+                )
+            )
+
+        return (
+            release_version_iri(
+                product,
+                context,
+            ),
+        )
+
+    if source.startswith("release."):
+        if context is None:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "ANNOTATION_FORMAL_CONTEXT_REQUIRED"
+                        ),
+                        field=field,
+                        message=(
+                            f"annotation value source {source} "
+                            "requires formal release context"
+                        ),
+                    ),
+                )
+            )
+
+        release_values = {
+            "release.release_identifier": (
+                context.release_identifier
+            ),
+            "release.release_date": (
+                context.release_date
+            ),
+            "release.git_tag": (
+                context.git_tag
+            ),
+            "release.source_commit": (
+                context.source_commit
+            ),
+        }
+
+        if source in release_values:
+            return (
+                release_values[source],
+            )
+
+    raise PublicationError(
+        (
+            PublicationIssue(
+                code="UNSUPPORTED_ANNOTATION_VALUE_SOURCE",
+                field=field,
+                message=(
+                    "unsupported annotation value source: "
+                    f"{source}"
+                ),
+            ),
+        )
+    )
+
+
+def publication_annotations(
+    config: ProjectConfig,
+    product_key: str,
+    context: FormalReleaseContext | None = None,
+) -> tuple[OntologyAnnotation, ...]:
+    """Evaluate configured rules to exact ordered ontology annotations.
+
+    A missing context selects development publication. A supplied context
+    selects formal publication and is validated authoritatively before any
+    formal rule is evaluated.
+
+    Rule order is preserved. Multi-valued sources expand in configured source
+    order at the position of their rule. Product dependencies and ontology
+    imports do not participate in annotation evaluation.
+    """
+
+    product = _publication_product(
+        config,
+        product_key,
+    )
+
+    if context is None:
+        mode = "development"
+        validated_context = None
+    else:
+        mode = "formal"
+        validated_context = (
+            validate_formal_release_context(
+                context
+            )
+        )
+
+    result: list[OntologyAnnotation] = []
+
+    for index, rule in enumerate(
+        config.publication.annotation_rules
+    ):
+        path = (
+            f"publication.annotation_rules[{index}]"
+        )
+
+        if rule.product_keys and (
+            product.product_key
+            not in rule.product_keys
+        ):
+            continue
+
+        if rule.applicability not in {
+            "development",
+            "formal",
+            "both",
+        }:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "UNSUPPORTED_ANNOTATION_APPLICABILITY"
+                        ),
+                        field=f"{path}.applicability",
+                        message=(
+                            "expected development, formal, "
+                            f"or both; got {rule.applicability!r}"
+                        ),
+                    ),
+                )
+            )
+
+        applies = (
+            rule.applicability == "both"
+            or rule.applicability == mode
+        )
+
+        if not applies:
+            continue
+
+        values = _annotation_rule_values(
+            config,
+            product,
+            rule,
+            index,
+            validated_context,
+        )
+
+        for value in values:
+            annotation = OntologyAnnotation(
+                predicate_iri=rule.predicate_iri,
+                object_kind=rule.object_kind,
+                value=value,
+                language=rule.language,
+                datatype_iri=rule.datatype_iri,
+            )
+
+            issues = ontology_annotation_issues(
+                annotation
+            )
+
+            if issues:
+                raise PublicationError(
+                    issues
+                )
+
+            result.append(
+                annotation
+            )
 
     return tuple(result)

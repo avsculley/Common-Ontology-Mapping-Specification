@@ -1,11 +1,18 @@
 import unittest
 
 from coms.config import (
+    ExpressionProfile,
+    ProductText,
+    ProjectConfig,
+    PublicationAnnotationRule,
+    PublicationProfile,
+    ReleaseLayout,
+    WorkbookProfile,
     ProductDefinition,
     ProductGraph,
     ProductImport,
 )
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 from coms.publication import (
     OntologyAnnotation,
@@ -13,6 +20,7 @@ from coms.publication import (
     development_import_iris,
     formal_import_iris,
     ontology_annotation_issues,
+    publication_annotations,
     release_iri_pattern_issues,
     render_annotation_object_turtle,
     release_version_iri,
@@ -536,6 +544,659 @@ class PublicationVersioningTests(
         )
 
 
+
+
+class PublicationAnnotationEvaluationTests(
+    unittest.TestCase
+):
+    def _context(
+        self,
+    ) -> FormalReleaseContext:
+        return FormalReleaseContext(
+            release_identifier="2099-01-02",
+            release_date="2099-01-02",
+            git_tag="v2099-01-02",
+            source_commit=(
+                "0123456789abcdef"
+                "0123456789abcdef"
+                "01234567"
+            ),
+        )
+
+    def _config(
+        self,
+        rules=(),
+        *,
+        creators=(
+            "Creator A",
+            "Creator B",
+        ),
+        contributors=(
+            "Contributor A",
+        ),
+        repository_iri=(
+            "https://example.org/repository"
+        ),
+    ) -> ProjectConfig:
+        alignment = ProductDefinition(
+            product_key="alignment",
+            output_path="build/alignment.ttl",
+            product_type="mapping",
+            stable_ontology_iri=(
+                "https://example.org/alignment"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/alignment"
+            ),
+        )
+
+        integrated = ProductDefinition(
+            product_key="integrated",
+            output_path="build/integrated.ttl",
+            product_type="integrated",
+            stable_ontology_iri=(
+                "https://example.org/integrated"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/integrated"
+            ),
+        )
+
+        return ProjectConfig(
+            project_key="synthetic",
+            project_title="Synthetic Mapping",
+            repository_root=".",
+            authoritative_mapping_source="workbook",
+            primary_output="integrated",
+            generated_warning="GENERATED FILE",
+            configuration_schema_version="1",
+            workbook=WorkbookProfile(
+                workbook_path="mapping.xlsx",
+                row_id_column="RowID",
+            ),
+            vocabularies=(),
+            expressions=ExpressionProfile(),
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    integrated,
+                ),
+            ),
+            validation_profiles=(),
+            publication=PublicationProfile(
+                project_title="Synthetic Mapping",
+                repository_iri=repository_iri,
+                license_iri=(
+                    "https://example.org/license"
+                ),
+                creators=creators,
+                contributors=contributors,
+                development_status="development",
+                product_labels=(
+                    ProductText(
+                        "alignment",
+                        "Alignment Mapping",
+                    ),
+                    ProductText(
+                        "integrated",
+                        "Integrated Mapping",
+                    ),
+                ),
+                product_descriptions=(
+                    ProductText(
+                        "alignment",
+                        "Alignment description",
+                    ),
+                    ProductText(
+                        "integrated",
+                        "Integrated description",
+                    ),
+                ),
+                annotation_rules=tuple(
+                    rules
+                ),
+            ),
+            release_layout=ReleaseLayout(),
+        )
+
+    def test_development_evaluation_preserves_rule_order(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/first"
+                    ),
+                    object_kind="plain_literal",
+                    fixed_value="fixed",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/repository"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "publication.repository_iri"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/type"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.type",
+                ),
+            )
+        )
+
+        observed = publication_annotations(
+            config,
+            "integrated",
+        )
+
+        self.assertEqual(
+            tuple(
+                value.predicate_iri
+                for value in observed
+            ),
+            (
+                "https://example.org/first",
+                "https://example.org/repository",
+                "https://example.org/type",
+            ),
+        )
+
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in observed
+            ),
+            (
+                "fixed",
+                "https://example.org/repository",
+                "integrated",
+            ),
+        )
+
+    def test_multivalued_sources_expand_in_configured_order(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/creator"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.creators"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/contributor"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.contributors"
+                    ),
+                ),
+            )
+        )
+
+        observed = publication_annotations(
+            config,
+            "integrated",
+        )
+
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in observed
+            ),
+            (
+                "Creator A",
+                "Creator B",
+                "Contributor A",
+            ),
+        )
+
+        self.assertEqual(
+            tuple(
+                value.predicate_iri
+                for value in observed
+            ),
+            (
+                "https://example.org/creator",
+                "https://example.org/creator",
+                "https://example.org/contributor",
+            ),
+        )
+
+    def test_empty_multivalued_source_emits_nothing_in_place(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/before"
+                    ),
+                    object_kind="plain_literal",
+                    fixed_value="before",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/contributor"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.contributors"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/after"
+                    ),
+                    object_kind="plain_literal",
+                    fixed_value="after",
+                ),
+            ),
+            contributors=(),
+        )
+
+        observed = publication_annotations(
+            config,
+            "integrated",
+        )
+
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in observed
+            ),
+            (
+                "before",
+                "after",
+            ),
+        )
+
+    def test_product_scope_and_applicability_are_filters(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/alignment-only"
+                    ),
+                    object_kind="plain_literal",
+                    fixed_value="skip-product",
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/formal-only"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="formal",
+                    fixed_value="skip-mode",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/both"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="both",
+                    fixed_value="keep",
+                    product_keys=(
+                        "integrated",
+                    ),
+                ),
+            )
+        )
+
+        observed = publication_annotations(
+            config,
+            "integrated",
+        )
+
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in observed
+            ),
+            (
+                "keep",
+            ),
+        )
+
+    def test_product_text_sources_resolve_exact_keyed_values(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.label",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/description"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "product.description"
+                    ),
+                ),
+            )
+        )
+
+        observed = publication_annotations(
+            config,
+            "integrated",
+        )
+
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in observed
+            ),
+            (
+                "Integrated Mapping",
+                "Integrated description",
+            ),
+        )
+
+    def test_formal_evaluation_resolves_release_sources(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/version"
+                    ),
+                    object_kind="iri",
+                    applicability="formal",
+                    value_source=(
+                        "product.release_version_iri"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/release-id"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="formal",
+                    value_source=(
+                        "release.release_identifier"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/date"
+                    ),
+                    object_kind="typed_literal",
+                    applicability="formal",
+                    value_source="release.release_date",
+                    datatype_iri=(
+                        "https://example.org/date-type"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/tag"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="formal",
+                    value_source="release.git_tag",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/commit"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="formal",
+                    value_source=(
+                        "release.source_commit"
+                    ),
+                ),
+            )
+        )
+
+        observed = publication_annotations(
+            config,
+            "integrated",
+            self._context(),
+        )
+
+        self.assertEqual(
+            tuple(
+                value.value
+                for value in observed
+            ),
+            (
+                (
+                    "https://example.org/releases/"
+                    "2099-01-02/integrated"
+                ),
+                "2099-01-02",
+                "2099-01-02",
+                "v2099-01-02",
+                (
+                    "0123456789abcdef"
+                    "0123456789abcdef"
+                    "01234567"
+                ),
+            ),
+        )
+
+    def test_formal_context_validation_remains_authoritative(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/formal"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="formal",
+                    fixed_value="value",
+                ),
+            )
+        )
+
+        invalid = FormalReleaseContext(
+            release_identifier="2099-1-2",
+            release_date="2099-01-02",
+            git_tag="v2099-01-02",
+            source_commit=(
+                "0123456789abcdef"
+                "0123456789abcdef"
+                "01234567"
+            ),
+        )
+
+        with self.assertRaises(
+            FormalReleaseContextError
+        ):
+            publication_annotations(
+                config,
+                "integrated",
+                invalid,
+            )
+
+    def test_unknown_and_duplicate_product_identity_are_errors(
+        self,
+    ):
+        config = self._config()
+
+        with self.assertRaises(
+            PublicationError
+        ) as unknown:
+            publication_annotations(
+                config,
+                "missing",
+            )
+
+        self.assertEqual(
+            unknown.exception.issues[0].code,
+            "UNKNOWN_PUBLICATION_PRODUCT",
+        )
+
+        duplicate = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    config.product_graph.products[1],
+                    replace(
+                        config.product_graph.products[1],
+                        output_path=(
+                            "build/duplicate.ttl"
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as ambiguous:
+            publication_annotations(
+                duplicate,
+                "integrated",
+            )
+
+        self.assertEqual(
+            ambiguous.exception.issues[0].code,
+            "AMBIGUOUS_PUBLICATION_PRODUCT",
+        )
+
+    def test_missing_scalar_source_is_runtime_structured_error(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/repository"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "publication.repository_iri"
+                    ),
+                ),
+            ),
+            repository_iri=None,
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            publication_annotations(
+                config,
+                "integrated",
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "ANNOTATION_VALUE_SOURCE_UNAVAILABLE",
+        )
+
+    def test_invalid_value_origin_and_source_are_runtime_errors(
+        self,
+    ):
+        both = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/predicate"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.project_title"
+                    ),
+                    fixed_value="fixed",
+                ),
+            )
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as origin:
+            publication_annotations(
+                both,
+                "integrated",
+            )
+
+        self.assertEqual(
+            origin.exception.issues[0].code,
+            "ANNOTATION_VALUE_ORIGIN_COUNT",
+        )
+
+        unsupported = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/predicate"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="unsupported.source",
+                ),
+            )
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as source:
+            publication_annotations(
+                unsupported,
+                "integrated",
+            )
+
+        self.assertEqual(
+            source.exception.issues[0].code,
+            "UNSUPPORTED_ANNOTATION_VALUE_SOURCE",
+        )
+
+    def test_evaluation_enforces_annotation_object_shape(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="language_literal",
+                    fixed_value="label",
+                ),
+            )
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            publication_annotations(
+                config,
+                "integrated",
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "ANNOTATION_LANGUAGE_REQUIRED",
+        )
 
 
 class PublicationImportResolutionTests(

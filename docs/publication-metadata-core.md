@@ -134,3 +134,36 @@ for every product in that rule's effective scope.
 
 Release-context sources remain runtime values supplied by a validated formal
 release context.
+
+## Annotation-rule evaluation
+
+`publication_annotations(config, product_key, context=None)` evaluates the
+ordered annotation rules for one configured product.
+
+When `context` is omitted, evaluation is for development publication. When a
+formal release context is supplied, evaluation is formal and the context is
+validated before formal metadata is derived.
+
+Evaluation is deterministic:
+
+1. rules are visited in configured order;
+2. rules outside the selected product scope are skipped;
+3. rules outside the selected development/formal applicability are skipped;
+4. fixed values emit one annotation;
+5. scalar value sources emit one annotation;
+6. `publication.creators` and `publication.contributors` expand in configured
+   tuple order at the position of their rule;
+7. an empty multi-valued source emits no annotations;
+8. every emitted value is converted to `OntologyAnnotation` using the rule's
+   predicate, object kind, language, and datatype configuration.
+
+No fallback lookup or implicit annotation omission occurs for scalar sources.
+Unavailable scalar values produce a structured publication error if evaluation
+is invoked on configuration that has bypassed semantic configuration
+validation.
+
+The evaluator does not inspect product dependencies or ontology imports.
+
+The output remains an ordered tuple of project-neutral `OntologyAnnotation`
+values. Ontology-subject selection and complete Turtle ontology-header assembly
+remain separate later operations.
