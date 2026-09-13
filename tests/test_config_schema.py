@@ -276,6 +276,9 @@ class ConfigurationSchemaTests(unittest.TestCase):
                 "object_kind": "language_literal",
                 "value_source": "product.label",
                 "language": "en",
+                "product_keys": [
+                    "integrated",
+                ],
             },
             {
                 "predicate_iri": (

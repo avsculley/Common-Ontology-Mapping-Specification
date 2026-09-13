@@ -110,3 +110,27 @@ formal-only. They cannot be used by rules that apply to development output.
 
 This configuration layer still does not evaluate rules or assemble ontology
 headers.
+
+## Value-source cardinality and availability
+
+Rule evaluation uses an explicit cardinality contract.
+
+Fixed values and ordinary value sources are scalar. A scalar rule yields one
+annotation.
+
+`publication.creators` and `publication.contributors` are the only
+multi-valued sources. They preserve configured tuple order and expand to one
+annotation per value. An empty tuple is valid and expands to no annotations.
+
+An explicitly requested optional scalar source must exist. Configuration
+validation therefore rejects rules whose required publication or product value
+is unavailable rather than treating absence as an implicit request to omit the
+annotation.
+
+`product_labels` and `product_descriptions` are keyed publication data. Each
+collection may contain at most one record for a given product key. A rule using
+`product.label` or `product.description` requires the corresponding keyed value
+for every product in that rule's effective scope.
+
+Release-context sources remain runtime values supplied by a validated formal
+release context.

@@ -757,6 +757,58 @@ def validate_project_config(
                 )
 
     # ------------------------------------------------------------------
+    # Publication product-text identity
+    # ------------------------------------------------------------------
+
+    publication_text_values = (
+        (
+            "product_labels",
+            config.publication.product_labels,
+        ),
+        (
+            "product_descriptions",
+            config.publication.product_descriptions,
+        ),
+    )
+
+    for field_name, values in publication_text_values:
+        for key in _duplicate_values(
+            value.product_key
+            for value in values
+        ):
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "duplicate_publication_product_text"
+                    ),
+                    path=f"publication.{field_name}",
+                    message=(
+                        "product has more than one "
+                        f"{field_name} record: {key}"
+                    ),
+                )
+            )
+
+    product_labels_by_key = {
+        value.product_key: value.text
+        for value in config.publication.product_labels
+    }
+
+    product_descriptions_by_key = {
+        value.product_key: value.text
+        for value in config.publication.product_descriptions
+    }
+
+    unique_products_by_key = (
+        {
+            product.product_key: product
+            for product in products
+        }
+        if not duplicate_product_keys
+        else {}
+    )
+
+    # ------------------------------------------------------------------
     # Publication annotation-rule configuration
     # ------------------------------------------------------------------
 
@@ -903,6 +955,126 @@ def validate_project_config(
                         ),
                     )
                 )
+
+        # --------------------------------------------------------------
+        # Annotation value-source availability
+        # --------------------------------------------------------------
+
+        optional_publication_sources = {
+            "publication.repository_iri": (
+                config.publication.repository_iri
+            ),
+            "publication.license_iri": (
+                config.publication.license_iri
+            ),
+            "publication.development_status": (
+                config.publication.development_status
+            ),
+        }
+
+        if (
+            rule.value_source
+            in optional_publication_sources
+            and optional_publication_sources[
+                rule.value_source
+            ]
+            in {
+                None,
+                "",
+            }
+        ):
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "annotation_value_source_unavailable"
+                    ),
+                    path=f"{path}.value_source",
+                    message=(
+                        "configured annotation value source "
+                        "has no value: "
+                        f"{rule.value_source}"
+                    ),
+                )
+            )
+
+        if (
+            rule.value_source is not None
+            and unique_products_by_key
+        ):
+            if rule.product_keys:
+                applicable_product_keys = tuple(
+                    key
+                    for key in rule.product_keys
+                    if key in unique_products_by_key
+                )
+            else:
+                applicable_product_keys = tuple(
+                    product.product_key
+                    for product in products
+                )
+
+            for product_key in applicable_product_keys:
+                product = unique_products_by_key[
+                    product_key
+                ]
+
+                source_available = True
+
+                if rule.value_source == "product.label":
+                    source_available = (
+                        product_key
+                        in product_labels_by_key
+                    )
+
+                elif (
+                    rule.value_source
+                    == "product.description"
+                ):
+                    source_available = (
+                        product_key
+                        in product_descriptions_by_key
+                    )
+
+                elif (
+                    rule.value_source
+                    == "product.stable_ontology_iri"
+                ):
+                    source_available = (
+                        product.stable_ontology_iri
+                        not in {
+                            None,
+                            "",
+                        }
+                    )
+
+                elif (
+                    rule.value_source
+                    == "product.release_version_iri"
+                ):
+                    source_available = (
+                        product.release_iri_pattern
+                        not in {
+                            None,
+                            "",
+                        }
+                    )
+
+                if not source_available:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_value_source_"
+                                "unavailable"
+                            ),
+                            path=f"{path}.value_source",
+                            message=(
+                                "annotation value source "
+                                f"{rule.value_source} has no "
+                                "configured value for product "
+                                f"{product_key}"
+                            ),
+                        )
+                    )
 
         if object_kind_valid:
             if rule.object_kind in {

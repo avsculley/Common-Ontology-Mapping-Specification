@@ -837,6 +837,254 @@ class ConfigurationValidationTests(unittest.TestCase):
             self._codes(config),
         )
 
+    def test_publication_product_text_keys_are_unique(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            product_labels=(
+                ProductText(
+                    "integrated",
+                    "First label",
+                ),
+                ProductText(
+                    "integrated",
+                    "Second label",
+                ),
+            ),
+            product_descriptions=(
+                ProductText(
+                    "alignment",
+                    "First description",
+                ),
+                ProductText(
+                    "alignment",
+                    "Second description",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "duplicate_publication_product_text"
+        )
+
+        self.assertEqual(
+            len(issues),
+            2,
+        )
+
+        self.assertEqual(
+            {
+                issue.path
+                for issue in issues
+            },
+            {
+                "publication.product_labels",
+                "publication.product_descriptions",
+            },
+        )
+
+    def test_annotation_rule_requires_configured_optional_scalar_source(
+        self,
+    ):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            repository_iri=None,
+            license_iri=None,
+            development_status=None,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/repository"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "publication.repository_iri"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/license"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "publication.license_iri"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/status"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.development_status"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "annotation_value_source_unavailable"
+        )
+
+        self.assertEqual(
+            len(issues),
+            3,
+        )
+
+    def test_annotation_product_sources_require_values_in_rule_scope(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            stable_ontology_iri=None,
+            release_iri_pattern=None,
+        )
+
+        publication = replace(
+            config.publication,
+            product_descriptions=(),
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.label",
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/description"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "product.description"
+                    ),
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/stable"
+                    ),
+                    object_kind="iri",
+                    value_source=(
+                        "product.stable_ontology_iri"
+                    ),
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/release"
+                    ),
+                    object_kind="iri",
+                    applicability="formal",
+                    value_source=(
+                        "product.release_version_iri"
+                    ),
+                    product_keys=(
+                        "alignment",
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    config.product_graph.products[1],
+                ),
+            ),
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "annotation_value_source_unavailable"
+        )
+
+        self.assertEqual(
+            len(issues),
+            4,
+        )
+
+    def test_empty_multivalued_annotation_sources_are_valid(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            creators=(),
+            contributors=(),
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/creator"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.creators"
+                    ),
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/contributor"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.contributors"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertEqual(
+            validate_project_config(
+                config
+            ),
+            (),
+        )
+
     def test_multi_product_dependency_cycle_is_reported(self):
         config = self._config()
 

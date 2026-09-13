@@ -320,6 +320,7 @@ object_kind = "language_literal"
 applicability = "both"
 value_source = "product.label"
 language = "en"
+product_keys = ["integrated"]
 
 [[publication.annotation_rules]]
 predicate_iri = "https://example.org/vocab/released"
@@ -364,6 +365,26 @@ Supported value sources are:
 
 The release-context sources and `product.release_version_iri` are formal-only
 sources and cannot apply to development output.
+
+Annotation value-source cardinality is explicit:
+
+- `fixed_value` is scalar and yields one annotation;
+- all value sources are scalar except `publication.creators` and
+  `publication.contributors`;
+- `publication.creators` and `publication.contributors` preserve configured
+  tuple order and later expand to one annotation per value;
+- an empty creators or contributors tuple is valid and expands to zero
+  annotations;
+- an explicitly referenced optional scalar source must be configured;
+- `product.label` and `product.description` require exactly one corresponding
+  `ProductText` record for every product to which the rule applies;
+- `product.stable_ontology_iri` requires the applicable product to define a
+  stable ontology IRI;
+- `product.release_version_iri` requires the applicable product to define a
+  release IRI pattern.
+
+Missing explicitly requested scalar values are configuration errors. They are
+not interpreted as instructions to silently omit an annotation.
 
 COMS does not assign RDF predicates to these sources. Predicates, object kinds,
 language tags, datatype IRIs, applicability, and order are project policy.
