@@ -17,11 +17,19 @@ from .model import (
     VocabularyRole,
     WorkbookProfile,
 )
+from .schema import (
+    SUPPORTED_CONFIGURATION_SCHEMA_VERSION,
+    ConfigSchemaError,
+    ConfigSchemaIssue,
+    parse_project_config,
+)
 from .validation import ConfigIssue, validate_project_config
 
 __all__ = [
     "CatalogMapping",
     "ConfigIssue",
+    "ConfigSchemaError",
+    "ConfigSchemaIssue",
     "ExpressionProfile",
     "FixedCountPolicy",
     "HeaderBinding",
@@ -32,6 +40,7 @@ __all__ = [
     "ProjectConfig",
     "PublicationProfile",
     "ReleaseLayout",
+    "SUPPORTED_CONFIGURATION_SCHEMA_VERSION",
     "ValidationProfile",
     "VocabularyProfile",
     "VocabularyRole",
