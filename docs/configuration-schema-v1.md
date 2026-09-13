@@ -200,6 +200,22 @@ Optional fields:
 - `validation_profile`
 - `package_role`
 
+`release_iri_pattern`, when present, is the complete immutable version-IRI
+template for that product. Formal publication currently defines exactly one
+replacement field:
+
+`{release_identifier}`
+
+The pattern must contain that field exactly once and may not use conversion or
+format-specification syntax. All other text in the pattern is project policy.
+For example:
+
+`https://example.org/releases/{release_identifier}/alignment`
+
+COMS does not require a shared release-IRI base or a framework-defined product
+suffix. Projects may therefore encode different version-IRI structures without
+changing the framework.
+
 `imports` and `dependencies` are intentionally distinct. The former expresses
 ontology-import configuration; the latter defines the COMS product dependency
 graph.
