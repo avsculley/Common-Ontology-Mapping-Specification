@@ -5,17 +5,284 @@ from coms.config import (
     ProductGraph,
     ProductImport,
 )
+from dataclasses import FrozenInstanceError
+
 from coms.publication import (
+    OntologyAnnotation,
     PublicationError,
     development_import_iris,
     formal_import_iris,
+    ontology_annotation_issues,
     release_iri_pattern_issues,
+    render_annotation_object_turtle,
     release_version_iri,
 )
 from coms.release_context import (
     FormalReleaseContext,
     FormalReleaseContextError,
 )
+
+
+class OntologyAnnotationTests(
+    unittest.TestCase
+):
+    def test_annotation_is_immutable(self):
+        annotation = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="plain_literal",
+            value="value",
+        )
+
+        with self.assertRaises(
+            FrozenInstanceError
+        ):
+            annotation.value = "changed"
+
+    def test_iri_object_renders_with_full_iri(self):
+        annotation = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="iri",
+            value="https://example.org/object",
+        )
+
+        self.assertEqual(
+            ontology_annotation_issues(
+                annotation
+            ),
+            (),
+        )
+
+        self.assertEqual(
+            render_annotation_object_turtle(
+                annotation
+            ),
+            "<https://example.org/object>",
+        )
+
+    def test_plain_literal_rendering_is_deterministic_and_escaped(
+        self,
+    ):
+        annotation = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="plain_literal",
+            value='quoted "value"\nnext',
+        )
+
+        self.assertEqual(
+            render_annotation_object_turtle(
+                annotation
+            ),
+            '"quoted \\"value\\"\\nnext"',
+        )
+
+    def test_language_literal_requires_language_and_renders(
+        self,
+    ):
+        invalid = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="language_literal",
+            value="label",
+        )
+
+        self.assertIn(
+            "ANNOTATION_LANGUAGE_REQUIRED",
+            {
+                issue.code
+                for issue
+                in ontology_annotation_issues(
+                    invalid
+                )
+            },
+        )
+
+        valid = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="language_literal",
+            value="label",
+            language="en",
+        )
+
+        self.assertEqual(
+            render_annotation_object_turtle(
+                valid
+            ),
+            '"label"@en',
+        )
+
+    def test_typed_literal_requires_datatype_and_renders(
+        self,
+    ):
+        invalid = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="typed_literal",
+            value="2099-01-02",
+        )
+
+        self.assertIn(
+            "ANNOTATION_DATATYPE_REQUIRED",
+            {
+                issue.code
+                for issue
+                in ontology_annotation_issues(
+                    invalid
+                )
+            },
+        )
+
+        valid = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="typed_literal",
+            value="2099-01-02",
+            datatype_iri=(
+                "https://example.org/date-datatype"
+            ),
+        )
+
+        self.assertEqual(
+            render_annotation_object_turtle(
+                valid
+            ),
+            (
+                '"2099-01-02"^^'
+                '<https://example.org/date-datatype>'
+            ),
+        )
+
+    def test_incompatible_language_and_datatype_are_rejected(
+        self,
+    ):
+        iri = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="iri",
+            value="https://example.org/object",
+            language="en",
+            datatype_iri=(
+                "https://example.org/datatype"
+            ),
+        )
+
+        self.assertEqual(
+            {
+                issue.code
+                for issue
+                in ontology_annotation_issues(
+                    iri
+                )
+            },
+            {
+                "ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                "ANNOTATION_DATATYPE_NOT_ALLOWED",
+            },
+        )
+
+        language = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="language_literal",
+            value="value",
+            language="en",
+            datatype_iri=(
+                "https://example.org/datatype"
+            ),
+        )
+
+        self.assertIn(
+            "ANNOTATION_DATATYPE_NOT_ALLOWED",
+            {
+                issue.code
+                for issue
+                in ontology_annotation_issues(
+                    language
+                )
+            },
+        )
+
+        typed = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="typed_literal",
+            value="value",
+            language="en",
+            datatype_iri=(
+                "https://example.org/datatype"
+            ),
+        )
+
+        self.assertIn(
+            "ANNOTATION_LANGUAGE_NOT_ALLOWED",
+            {
+                issue.code
+                for issue
+                in ontology_annotation_issues(
+                    typed
+                )
+            },
+        )
+
+    def test_unknown_object_kind_is_rejected(
+        self,
+    ):
+        annotation = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="unsupported",
+            value="value",
+        )
+
+        self.assertEqual(
+            tuple(
+                issue.code
+                for issue
+                in ontology_annotation_issues(
+                    annotation
+                )
+            ),
+            (
+                "INVALID_ANNOTATION_OBJECT_KIND",
+            ),
+        )
+
+    def test_invalid_annotation_raises_structured_publication_error(
+        self,
+    ):
+        annotation = OntologyAnnotation(
+            predicate_iri=(
+                "https://example.org/predicate"
+            ),
+            object_kind="typed_literal",
+            value="value",
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            render_annotation_object_turtle(
+                annotation
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "ANNOTATION_DATATYPE_REQUIRED",
+        )
 
 
 class PublicationVersioningTests(

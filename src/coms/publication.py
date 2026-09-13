@@ -11,7 +11,9 @@ formal release context.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from string import Formatter
+from typing import Literal, get_args
 
 from .config.model import (
     ProductDefinition,
@@ -24,6 +26,34 @@ from .release_context import (
 
 
 _RELEASE_IDENTIFIER_FIELD = "release_identifier"
+
+
+AnnotationObjectKind = Literal[
+    "iri",
+    "plain_literal",
+    "language_literal",
+    "typed_literal",
+]
+
+_ANNOTATION_OBJECT_KINDS = frozenset(
+    get_args(AnnotationObjectKind)
+)
+
+
+@dataclass(frozen=True, order=True)
+class OntologyAnnotation:
+    """One ordered project-neutral ontology annotation value.
+
+    This value object contains no project policy about which predicates should
+    occur, what order they should occur in, or which configuration fields
+    supply their values.
+    """
+
+    predicate_iri: str
+    object_kind: AnnotationObjectKind
+    value: str
+    language: str | None = None
+    datatype_iri: str | None = None
 
 
 @dataclass(frozen=True, order=True)
@@ -63,6 +93,199 @@ class PublicationError(ValueError):
                 for issue in ordered
             )
         )
+
+
+def ontology_annotation_issues(
+    annotation: OntologyAnnotation,
+) -> tuple[PublicationIssue, ...]:
+    """Return deterministic structural issues for one ontology annotation.
+
+    This function validates the internal term-shape contract only. It does
+    not validate IRI syntax, language-tag syntax, vocabulary policy, or
+    project publication policy.
+    """
+
+    issues: list[PublicationIssue] = []
+
+    if annotation.object_kind not in _ANNOTATION_OBJECT_KINDS:
+        issues.append(
+            PublicationIssue(
+                code="INVALID_ANNOTATION_OBJECT_KIND",
+                field="ontology_annotation.object_kind",
+                message=(
+                    "expected one of: "
+                    + ", ".join(
+                        sorted(
+                            _ANNOTATION_OBJECT_KINDS
+                        )
+                    )
+                ),
+            )
+        )
+
+        return tuple(issues)
+
+    if annotation.object_kind == "iri":
+        if annotation.language is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "IRI objects cannot have a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_NOT_ALLOWED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "IRI objects cannot have a datatype"
+                    ),
+                )
+            )
+
+    elif annotation.object_kind == "plain_literal":
+        if annotation.language is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "plain literals cannot have a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_NOT_ALLOWED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "plain literals cannot have a datatype"
+                    ),
+                )
+            )
+
+    elif annotation.object_kind == "language_literal":
+        if annotation.language in {
+            None,
+            "",
+        }:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_REQUIRED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "language literals require a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_NOT_ALLOWED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "language literals cannot have a datatype"
+                    ),
+                )
+            )
+
+    elif annotation.object_kind == "typed_literal":
+        if annotation.language is not None:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_LANGUAGE_NOT_ALLOWED",
+                    field="ontology_annotation.language",
+                    message=(
+                        "typed literals cannot have a language tag"
+                    ),
+                )
+            )
+
+        if annotation.datatype_iri in {
+            None,
+            "",
+        }:
+            issues.append(
+                PublicationIssue(
+                    code="ANNOTATION_DATATYPE_REQUIRED",
+                    field="ontology_annotation.datatype_iri",
+                    message=(
+                        "typed literals require a datatype IRI"
+                    ),
+                )
+            )
+
+    return tuple(
+        sorted(
+            set(issues),
+            key=lambda issue: (
+                issue.code,
+                issue.field,
+                issue.message,
+            ),
+        )
+    )
+
+
+def render_annotation_object_turtle(
+    annotation: OntologyAnnotation,
+) -> str:
+    """Render one annotation object as deterministic Turtle syntax.
+
+    Predicate rendering and prefix compaction are deliberately outside this
+    primitive. IRI and language-tag syntax validation also remain separate
+    validation concerns.
+    """
+
+    issues = ontology_annotation_issues(
+        annotation
+    )
+
+    if issues:
+        raise PublicationError(
+            issues
+        )
+
+    if annotation.object_kind == "iri":
+        return (
+            f"<{annotation.value}>"
+        )
+
+    encoded = json.dumps(
+        annotation.value,
+        ensure_ascii=False,
+    )
+
+    if annotation.object_kind == "plain_literal":
+        return encoded
+
+    if annotation.object_kind == "language_literal":
+        assert annotation.language is not None
+
+        return (
+            encoded
+            + f"@{annotation.language}"
+        )
+
+    if annotation.object_kind == "typed_literal":
+        assert annotation.datatype_iri is not None
+
+        return (
+            encoded
+            + f"^^<{annotation.datatype_iri}>"
+        )
+
+    raise AssertionError(
+        "validated annotation has unsupported object kind"
+    )
 
 
 def _pattern_field(
