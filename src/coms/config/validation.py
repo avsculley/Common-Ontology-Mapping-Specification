@@ -12,6 +12,7 @@ from typing import Iterable, get_args
 
 from .model import (
     ProductDefinition,
+    ProductImportFormalTarget,
     ProjectConfig,
     VocabularyRole,
 )
@@ -19,6 +20,10 @@ from .model import (
 
 _VOCABULARY_ROLES = frozenset(
     get_args(VocabularyRole)
+)
+
+_PRODUCT_IMPORT_FORMAL_TARGETS = frozenset(
+    get_args(ProductImportFormalTarget)
 )
 
 
@@ -165,6 +170,11 @@ def validate_project_config(
         for product in products
     }
 
+    duplicate_product_keys = _duplicate_values(
+        product.product_key
+        for product in products
+    )
+
     vocabulary_keys = {
         vocabulary.vocabulary_key
         for vocabulary in config.vocabularies
@@ -194,10 +204,7 @@ def validate_project_config(
             )
         )
 
-    for key in _duplicate_values(
-        product.product_key
-        for product in products
-    ):
+    for key in duplicate_product_keys:
         issues.append(
             ConfigIssue(
                 code="duplicate_product_key",
@@ -343,6 +350,59 @@ def validate_project_config(
             f"[{product.product_key}]"
         )
 
+        for imported_key in _duplicate_values(
+            value.product_key
+            for value in product.product_imports
+        ):
+            issues.append(
+                ConfigIssue(
+                    code="duplicate_product_import",
+                    path=f"{path}.product_imports",
+                    message=(
+                        "product is imported more than once: "
+                        f"{imported_key}"
+                    ),
+                )
+            )
+
+        for index, imported in enumerate(
+            product.product_imports
+        ):
+            import_path = (
+                f"{path}.product_imports[{index}]"
+            )
+
+            if imported.product_key not in product_keys:
+                issues.append(
+                    ConfigIssue(
+                        code="unknown_product_import",
+                        path=f"{import_path}.product_key",
+                        message=(
+                            "unknown imported product key: "
+                            f"{imported.product_key}"
+                        ),
+                    )
+                )
+
+            if (
+                imported.formal_target
+                not in _PRODUCT_IMPORT_FORMAL_TARGETS
+            ):
+                issues.append(
+                    ConfigIssue(
+                        code="invalid_product_import_formal_target",
+                        path=f"{import_path}.formal_target",
+                        message=(
+                            "expected one of: "
+                            + ", ".join(
+                                sorted(
+                                    _PRODUCT_IMPORT_FORMAL_TARGETS
+                                )
+                            )
+                        ),
+                    )
+                )
+
         for dependency in sorted(
             set(product.product_dependencies)
         ):
@@ -426,11 +486,6 @@ def validate_project_config(
     # Skip this reconciliation when keys are duplicated because the keyed
     # relationship is ambiguous until those primary errors are repaired.
 
-    duplicate_product_keys = _duplicate_values(
-        product.product_key
-        for product in products
-    )
-
     duplicate_vocabulary_keys = _duplicate_values(
         vocabulary.vocabulary_key
         for vocabulary in config.vocabularies
@@ -494,6 +549,101 @@ def validate_project_config(
                             ),
                         )
                     )
+
+    # ------------------------------------------------------------------
+    # Governed product-import publication identities
+    # ------------------------------------------------------------------
+    #
+    # Every governed product import resolves to the imported product's stable
+    # ontology IRI during development publication. Formal publication either
+    # retains that stable identity or resolves to the imported product's
+    # configured release-version IRI.
+    #
+    # Skip keyed target reconciliation when duplicate product keys make the
+    # target identity ambiguous.
+
+    if not duplicate_product_keys:
+        products_by_key = {
+            product.product_key: product
+            for product in products
+        }
+
+        imported_product_keys = {
+            imported.product_key
+            for product in products
+            for imported in product.product_imports
+            if imported.product_key in products_by_key
+        }
+
+        release_import_product_keys = {
+            imported.product_key
+            for product in products
+            for imported in product.product_imports
+            if (
+                imported.product_key in products_by_key
+                and imported.formal_target == "release"
+            )
+        }
+
+        for imported_key in sorted(
+            imported_product_keys
+        ):
+            target = products_by_key[
+                imported_key
+            ]
+
+            if target.stable_ontology_iri in {
+                None,
+                "",
+            }:
+                issues.append(
+                    ConfigIssue(
+                        code=(
+                            "product_import_target_missing_"
+                            "stable_ontology_iri"
+                        ),
+                        path=(
+                            "product_graph.products"
+                            f"[{imported_key}]."
+                            "stable_ontology_iri"
+                        ),
+                        message=(
+                            "product is referenced by "
+                            "product_imports but has no "
+                            "stable ontology IRI"
+                        ),
+                    )
+                )
+
+        for imported_key in sorted(
+            release_import_product_keys
+        ):
+            target = products_by_key[
+                imported_key
+            ]
+
+            if target.release_iri_pattern in {
+                None,
+                "",
+            }:
+                issues.append(
+                    ConfigIssue(
+                        code=(
+                            "product_import_target_missing_"
+                            "release_iri_pattern"
+                        ),
+                        path=(
+                            "product_graph.products"
+                            f"[{imported_key}]."
+                            "release_iri_pattern"
+                        ),
+                        message=(
+                            "product is formally imported "
+                            "by release identity but has no "
+                            "release IRI pattern"
+                        ),
+                    )
+                )
 
     for component in _cyclic_product_components(products):
         issues.append(

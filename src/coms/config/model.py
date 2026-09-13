@@ -91,6 +91,28 @@ class ExpressionProfile:
     canonicalization_version: str = ""
 
 
+ProductImportFormalTarget = Literal[
+    "stable",
+    "release",
+]
+
+
+@dataclass(frozen=True, order=True)
+class ProductImport:
+    """One explicit ontology import of another governed COMS product.
+
+    Development publication resolves the reference to the imported product's
+    stable ontology IRI. ``formal_target`` explicitly controls whether formal
+    publication retains that stable IRI or resolves the reference to the
+    imported product's release version IRI.
+
+    This relation is intentionally independent of ``product_dependencies``.
+    """
+
+    product_key: str
+    formal_target: ProductImportFormalTarget
+
+
 @dataclass(frozen=True)
 class ProductDefinition:
     """Declarative definition of one generated or supporting product.
@@ -109,6 +131,7 @@ class ProductDefinition:
     stable_ontology_iri: str | None = None
     release_iri_pattern: str | None = None
     imports: tuple[str, ...] = ()
+    product_imports: tuple[ProductImport, ...] = ()
     product_dependencies: tuple[str, ...] = ()
     inclusion_policy: str | None = None
     permitted_vocabularies: tuple[str, ...] = ()

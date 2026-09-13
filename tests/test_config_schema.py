@@ -88,6 +88,13 @@ class ConfigurationSchemaTests(unittest.TestCase):
                     "key": "alignment",
                     "output_path": "build/alignment.ttl",
                     "type": "mapping",
+                    "stable_ontology_iri": (
+                        "https://example.org/alignment"
+                    ),
+                    "release_iri_pattern": (
+                        "https://example.org/releases/"
+                        "{release_identifier}/alignment"
+                    ),
                     "permitted_vocabularies": [
                         "source",
                     ],
@@ -97,6 +104,13 @@ class ConfigurationSchemaTests(unittest.TestCase):
                     "key": "integrated",
                     "output_path": "build/integrated.ttl",
                     "type": "integrated",
+                    "stable_ontology_iri": (
+                        "https://example.org/integrated"
+                    ),
+                    "release_iri_pattern": (
+                        "https://example.org/releases/"
+                        "{release_identifier}/integrated"
+                    ),
                     "dependencies": [
                         "alignment",
                     ],
@@ -198,6 +212,52 @@ class ConfigurationSchemaTests(unittest.TestCase):
         self.assertEqual(
             config.release_layout.product_artifacts,
             (),
+        )
+
+        self.assertEqual(
+            validate_project_config(config),
+            (),
+        )
+
+    def test_product_imports_parse_independently_of_dependencies(self):
+        data = self._mapping()
+
+        data["products"][1]["dependencies"] = []
+        data["products"][1]["product_imports"] = [
+            {
+                "product_key": "alignment",
+                "formal_target": "release",
+            },
+        ]
+
+        config = parse_project_config(
+            data
+        )
+
+        integrated = (
+            config.product_graph.products[1]
+        )
+
+        self.assertEqual(
+            integrated.product_dependencies,
+            (),
+        )
+
+        self.assertEqual(
+            tuple(
+                (
+                    value.product_key,
+                    value.formal_target,
+                )
+                for value
+                in integrated.product_imports
+            ),
+            (
+                (
+                    "alignment",
+                    "release",
+                ),
+            ),
         )
 
         self.assertEqual(

@@ -8,6 +8,7 @@ from coms.config import (
     PrefixBinding,
     ProductDefinition,
     ProductGraph,
+    ProductImport,
     ProductText,
     ProjectConfig,
     PublicationProfile,
@@ -103,6 +104,13 @@ class ConfigurationValidationTests(unittest.TestCase):
             product_key="alignment",
             output_path="build/alignment.ttl",
             product_type="mapping",
+            stable_ontology_iri=(
+                "https://example.org/alignment"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/alignment"
+            ),
             permitted_vocabularies=(
                 "source",
             ),
@@ -113,6 +121,13 @@ class ConfigurationValidationTests(unittest.TestCase):
             product_key="integrated",
             output_path="build/integrated.ttl",
             product_type="integrated",
+            stable_ontology_iri=(
+                "https://example.org/integrated"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/integrated"
+            ),
             product_dependencies=(
                 "alignment",
             ),
@@ -459,6 +474,170 @@ class ConfigurationValidationTests(unittest.TestCase):
         self.assertIn(
             "explicitly prohibits product",
             conflicts[1].message,
+        )
+
+    def test_product_import_reference_and_formal_target_are_validated(self):
+        config = self._config()
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="missing-product",
+                    formal_target="unsupported",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        self.assertTrue(
+            {
+                "unknown_product_import",
+                "invalid_product_import_formal_target",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_product_import_does_not_imply_product_dependency(self):
+        config = self._config()
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_dependencies=(),
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            validate_project_config(config),
+            (),
+        )
+
+    def test_product_import_target_requires_stable_ontology_iri(self):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            stable_ontology_iri=None,
+        )
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    integrated,
+                ),
+            ),
+        )
+
+        self.assertIn(
+            (
+                "product_import_target_missing_"
+                "stable_ontology_iri"
+            ),
+            self._codes(config),
+        )
+
+    def test_release_product_import_requires_release_pattern_only_for_release_target(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            release_iri_pattern=None,
+        )
+
+        release_import = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        release_config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    release_import,
+                ),
+            ),
+        )
+
+        self.assertIn(
+            (
+                "product_import_target_missing_"
+                "release_iri_pattern"
+            ),
+            self._codes(
+                release_config
+            ),
+        )
+
+        stable_import = replace(
+            release_import,
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        stable_config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    stable_import,
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            validate_project_config(
+                stable_config
+            ),
+            (),
         )
 
     def test_multi_product_dependency_cycle_is_reported(self):

@@ -192,6 +192,7 @@ Optional fields:
 - `stable_ontology_iri`
 - `release_iri_pattern`
 - `imports`
+- `product_imports`
 - `dependencies`
 - `inclusion_policy`
 - `permitted_vocabularies`
@@ -216,9 +217,28 @@ COMS does not require a shared release-IRI base or a framework-defined product
 suffix. Projects may therefore encode different version-IRI structures without
 changing the framework.
 
-`imports` and `dependencies` are intentionally distinct. The former expresses
-ontology-import configuration; the latter defines the COMS product dependency
-graph.
+`imports`, `product_imports`, and `dependencies` are intentionally distinct.
+
+- `imports` contains literal ontology IRIs that are imported exactly as
+  configured.
+- `product_imports` contains explicit references to other governed COMS
+  products. Development publication resolves those references to the imported
+  product's `stable_ontology_iri`, so every referenced product must define
+  one. `formal_target` must be either `stable` or `release` and explicitly
+  determines which identity formal publication will use. A `release` target
+  additionally requires the referenced product to define
+  `release_iri_pattern`.
+- `dependencies` defines the COMS product/build dependency graph and has no
+  implicit ontology-import semantics.
+
+For example, a product may declare:
+
+    [[products.product_imports]]
+    product_key = "alignment"
+    formal_target = "release"
+
+This declaration is independent of whether `alignment` also occurs in the
+product's `dependencies` list.
 
 ## Validation profiles
 

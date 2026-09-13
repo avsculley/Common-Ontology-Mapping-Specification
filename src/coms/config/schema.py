@@ -20,6 +20,7 @@ from .model import (
     PrefixBinding,
     ProductDefinition,
     ProductGraph,
+    ProductImport,
     ProductText,
     ProjectConfig,
     PublicationProfile,
@@ -583,6 +584,51 @@ def _parse_vocabularies(
     return tuple(result)
 
 
+def _parse_product_imports(
+    parser: _SchemaParser,
+    product: Mapping[str, Any],
+    path: str,
+) -> tuple[ProductImport, ...]:
+    result: list[ProductImport] = []
+
+    for index, entry in parser.table_array(
+        product,
+        "product_imports",
+        f"{path}.product_imports",
+    ):
+        entry_path = (
+            f"{path}.product_imports[{index}]"
+        )
+
+        parser.check_keys(
+            entry,
+            entry_path,
+            {
+                "product_key",
+                "formal_target",
+            },
+        )
+
+        result.append(
+            ProductImport(
+                product_key=parser.string(
+                    entry,
+                    "product_key",
+                    f"{entry_path}.product_key",
+                    required=True,
+                ),
+                formal_target=parser.string(
+                    entry,
+                    "formal_target",
+                    f"{entry_path}.formal_target",
+                    required=True,
+                ),
+            )
+        )
+
+    return tuple(result)
+
+
 def _parse_products(
     parser: _SchemaParser,
     root: Mapping[str, Any],
@@ -607,6 +653,7 @@ def _parse_products(
                 "stable_ontology_iri",
                 "release_iri_pattern",
                 "imports",
+                "product_imports",
                 "dependencies",
                 "inclusion_policy",
                 "permitted_vocabularies",
@@ -651,6 +698,11 @@ def _parse_products(
                     entry,
                     "imports",
                     f"{path}.imports",
+                ),
+                product_imports=_parse_product_imports(
+                    parser,
+                    entry,
+                    path,
                 ),
                 product_dependencies=parser.string_tuple(
                     entry,

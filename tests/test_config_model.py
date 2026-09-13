@@ -7,6 +7,7 @@ from coms.config import (
     PrefixBinding,
     ProductDefinition,
     ProductGraph,
+    ProductImport,
     ProjectConfig,
     PublicationProfile,
     ReleaseLayout,
@@ -229,6 +230,49 @@ class ConfigurationModelTests(unittest.TestCase):
         self.assertEqual(
             config.validation_profiles[0].instance_data_tests,
             ("tests/fixtures/synthetic-instances.ttl",),
+        )
+
+    def test_product_imports_are_distinct_from_product_dependencies(self):
+        product = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            imports=(
+                "https://example.org/external",
+            ),
+            product_imports=(
+                ProductImport(
+                    product_key="published-upstream",
+                    formal_target="release",
+                ),
+            ),
+            product_dependencies=(
+                "build-helper",
+            ),
+        )
+
+        self.assertEqual(
+            product.imports,
+            (
+                "https://example.org/external",
+            ),
+        )
+
+        self.assertEqual(
+            product.product_imports[0].product_key,
+            "published-upstream",
+        )
+
+        self.assertEqual(
+            product.product_imports[0].formal_target,
+            "release",
+        )
+
+        self.assertEqual(
+            product.product_dependencies,
+            (
+                "build-helper",
+            ),
         )
 
     def test_product_policy_uses_configuration_keys_not_framework_categories(
