@@ -1078,3 +1078,225 @@ def publication_annotations(
             )
 
     return tuple(result)
+
+
+OWL_ONTOLOGY_IRI = (
+    "http://www.w3.org/2002/07/owl#Ontology"
+)
+
+OWL_IMPORTS_IRI = (
+    "http://www.w3.org/2002/07/owl#imports"
+)
+
+
+def _header_import_iris(
+    config: ProjectConfig,
+    product: ProductDefinition,
+    context: FormalReleaseContext | None,
+) -> tuple[str, ...]:
+    """Resolve exact header imports and reject duplicate RDF terms."""
+
+    if context is None:
+        values = development_import_iris(
+            product,
+            config.product_graph,
+        )
+    else:
+        values = formal_import_iris(
+            product,
+            config.product_graph,
+            context,
+        )
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+
+    for value in values:
+        if value in seen:
+            if value not in duplicates:
+                duplicates.append(
+                    value
+                )
+        else:
+            seen.add(
+                value
+            )
+
+    if duplicates:
+        raise PublicationError(
+            tuple(
+                PublicationIssue(
+                    code="DUPLICATE_ONTOLOGY_IMPORT",
+                    field=(
+                        f"products.{product.product_key}."
+                        "resolved_imports"
+                    ),
+                    message=(
+                        "resolved ontology import occurs "
+                        f"more than once: {value}"
+                    ),
+                )
+                for value in duplicates
+            )
+        )
+
+    return values
+
+
+def render_ontology_header_bytes(
+    config: ProjectConfig,
+    product_key: str,
+    context: FormalReleaseContext | None = None,
+) -> bytes:
+    """Render one canonical project-neutral Turtle ontology statement.
+
+    The ontology subject is always the product's stable ontology IRI.
+    Development/formal differences occur in evaluated annotations and resolved
+    imports, never by changing the ontology subject.
+
+    Serialization order is:
+
+    1. ontology declaration;
+    2. evaluated annotations in governed rule order;
+    3. one ``owl:imports`` predicate, if imports exist.
+
+    All IRIs are rendered in full. Prefix declarations and compact-name policy
+    belong to a later serialization-profile layer.
+
+    The returned byte sequence ends with exactly one LF and contains no prefix
+    block, generated-file comment, body separator, or ontology body.
+    """
+
+    product = _publication_product(
+        config,
+        product_key,
+    )
+
+    stable_ontology_iri = (
+        _required_annotation_source_value(
+            product.stable_ontology_iri,
+            "product.stable_ontology_iri",
+            (
+                f"products.{product.product_key}."
+                "stable_ontology_iri"
+            ),
+            product.product_key,
+        )
+    )
+
+    if context is None:
+        validated_context = None
+    else:
+        validated_context = (
+            validate_formal_release_context(
+                context
+            )
+        )
+
+    annotations = publication_annotations(
+        config,
+        product.product_key,
+        validated_context,
+    )
+
+    imports = _header_import_iris(
+        config,
+        product,
+        validated_context,
+    )
+
+    for annotation in annotations:
+        if annotation.predicate_iri == OWL_IMPORTS_IRI:
+            raise PublicationError(
+                (
+                    PublicationIssue(
+                        code=(
+                            "RESERVED_ONTOLOGY_HEADER_PREDICATE"
+                        ),
+                        field="ontology_header.annotations",
+                        message=(
+                            "owl:imports is structural header "
+                            "policy and cannot be emitted by "
+                            "an annotation rule"
+                        ),
+                    ),
+                )
+            )
+
+    lines = [
+        (
+            f"<{stable_ontology_iri}> "
+            f"a <{OWL_ONTOLOGY_IRI}>"
+        )
+    ]
+
+    has_tail = bool(
+        annotations
+        or imports
+    )
+
+    lines[0] += (
+        " ;"
+        if has_tail
+        else " ."
+    )
+
+    for index, annotation in enumerate(
+        annotations
+    ):
+        has_following = (
+            index
+            < len(annotations) - 1
+            or bool(imports)
+        )
+
+        terminator = (
+            " ;"
+            if has_following
+            else " ."
+        )
+
+        lines.append(
+            "    "
+            f"<{annotation.predicate_iri}> "
+            f"{render_annotation_object_turtle(annotation)}"
+            f"{terminator}"
+        )
+
+    if imports:
+        first, *rest = imports
+
+        if not rest:
+            lines.append(
+                "    "
+                f"<{OWL_IMPORTS_IRI}> "
+                f"<{first}> ."
+            )
+        else:
+            lines.append(
+                "    "
+                f"<{OWL_IMPORTS_IRI}> "
+                f"<{first}>,"
+            )
+
+            for index, value in enumerate(
+                rest
+            ):
+                terminator = (
+                    " ."
+                    if index == len(rest) - 1
+                    else ","
+                )
+
+                lines.append(
+                    "        "
+                    f"<{value}>"
+                    f"{terminator}"
+                )
+
+    return (
+        "\n".join(lines)
+        + "\n"
+    ).encode(
+        "utf-8"
+    )

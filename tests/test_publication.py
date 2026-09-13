@@ -23,6 +23,7 @@ from coms.publication import (
     publication_annotations,
     release_iri_pattern_issues,
     render_annotation_object_turtle,
+    render_ontology_header_bytes,
     release_version_iri,
 )
 from coms.release_context import (
@@ -1196,6 +1197,546 @@ class PublicationAnnotationEvaluationTests(
         self.assertEqual(
             context.exception.issues[0].code,
             "ANNOTATION_LANGUAGE_REQUIRED",
+        )
+
+
+class OntologyHeaderAssemblyTests(
+    unittest.TestCase
+):
+    OWL_ONTOLOGY = (
+        "http://www.w3.org/2002/07/owl#Ontology"
+    )
+
+    OWL_IMPORTS = (
+        "http://www.w3.org/2002/07/owl#imports"
+    )
+
+    def _context(
+        self,
+    ) -> FormalReleaseContext:
+        return FormalReleaseContext(
+            release_identifier="2099-01-02",
+            release_date="2099-01-02",
+            git_tag="v2099-01-02",
+            source_commit=(
+                "0123456789abcdef"
+                "0123456789abcdef"
+                "01234567"
+            ),
+        )
+
+    def _config(
+        self,
+        rules=(),
+    ) -> ProjectConfig:
+        alignment = ProductDefinition(
+            product_key="alignment",
+            output_path="build/alignment.ttl",
+            product_type="mapping",
+            stable_ontology_iri=(
+                "https://example.org/alignment"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/alignment"
+            ),
+        )
+
+        integrated = ProductDefinition(
+            product_key="integrated",
+            output_path="build/integrated.ttl",
+            product_type="integrated",
+            stable_ontology_iri=(
+                "https://example.org/integrated"
+            ),
+            release_iri_pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/integrated"
+            ),
+        )
+
+        return ProjectConfig(
+            project_key="synthetic",
+            project_title="Synthetic Mapping",
+            repository_root=".",
+            authoritative_mapping_source="workbook",
+            primary_output="integrated",
+            generated_warning="GENERATED FILE",
+            configuration_schema_version="1",
+            workbook=WorkbookProfile(
+                workbook_path="mapping.xlsx",
+                row_id_column="RowID",
+            ),
+            vocabularies=(),
+            expressions=ExpressionProfile(),
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    integrated,
+                ),
+            ),
+            validation_profiles=(),
+            publication=PublicationProfile(
+                project_title="Synthetic Mapping",
+                product_labels=(
+                    ProductText(
+                        "alignment",
+                        "Alignment Mapping",
+                    ),
+                    ProductText(
+                        "integrated",
+                        "Integrated Mapping",
+                    ),
+                ),
+                annotation_rules=tuple(
+                    rules
+                ),
+            ),
+            release_layout=ReleaseLayout(),
+        )
+
+    def test_header_uses_stable_subject_annotations_then_imports(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.label",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/type"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.type",
+                ),
+            )
+        )
+
+        integrated = replace(
+            config.product_graph.products[1],
+            imports=(
+                "https://example.org/external-a",
+                "https://example.org/external-b",
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        observed = render_ontology_header_bytes(
+            config,
+            "integrated",
+        )
+
+        expected = (
+            "<https://example.org/integrated> "
+            f"a <{self.OWL_ONTOLOGY}> ;\n"
+            "    <https://example.org/label> "
+            "\"Integrated Mapping\" ;\n"
+            "    <https://example.org/type> "
+            "\"integrated\" ;\n"
+            f"    <{self.OWL_IMPORTS}> "
+            "<https://example.org/external-a>,\n"
+            "        <https://example.org/external-b> .\n"
+        ).encode(
+            "utf-8"
+        )
+
+        self.assertEqual(
+            observed,
+            expected,
+        )
+
+    def test_formal_header_keeps_stable_subject_and_version_is_metadata(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/version"
+                    ),
+                    object_kind="iri",
+                    applicability="formal",
+                    value_source=(
+                        "product.release_version_iri"
+                    ),
+                ),
+            )
+        )
+
+        text = render_ontology_header_bytes(
+            config,
+            "integrated",
+            self._context(),
+        ).decode(
+            "utf-8"
+        )
+
+        self.assertTrue(
+            text.startswith(
+                "<https://example.org/integrated> "
+            )
+        )
+
+        self.assertIn(
+            (
+                "<https://example.org/version> "
+                "<https://example.org/releases/"
+                "2099-01-02/integrated>"
+            ),
+            text,
+        )
+
+        self.assertFalse(
+            text.startswith(
+                (
+                    "<https://example.org/releases/"
+                    "2099-01-02/integrated>"
+                )
+            )
+        )
+
+    def test_empty_header_is_one_complete_ontology_statement(
+        self,
+    ):
+        config = self._config()
+
+        observed = render_ontology_header_bytes(
+            config,
+            "alignment",
+        )
+
+        self.assertEqual(
+            observed,
+            (
+                "<https://example.org/alignment> "
+                f"a <{self.OWL_ONTOLOGY}> .\n"
+            ).encode(
+                "utf-8"
+            ),
+        )
+
+    def test_annotations_without_imports_end_with_period(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.label",
+                ),
+            )
+        )
+
+        observed = render_ontology_header_bytes(
+            config,
+            "alignment",
+        ).decode(
+            "utf-8"
+        )
+
+        self.assertEqual(
+            observed.splitlines()[-1],
+            (
+                "    <https://example.org/label> "
+                "\"Alignment Mapping\" ."
+            ),
+        )
+
+    def test_imports_without_annotations_are_structural_tail(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            imports=(
+                "https://example.org/external",
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    config.product_graph.products[1],
+                ),
+            ),
+        )
+
+        observed = render_ontology_header_bytes(
+            config,
+            "alignment",
+        ).decode(
+            "utf-8"
+        )
+
+        self.assertEqual(
+            observed.splitlines(),
+            [
+                (
+                    "<https://example.org/alignment> "
+                    f"a <{self.OWL_ONTOLOGY}> ;"
+                ),
+                (
+                    f"    <{self.OWL_IMPORTS}> "
+                    "<https://example.org/external> ."
+                ),
+            ],
+        )
+
+    def test_resolved_import_order_is_preserved(
+        self,
+    ):
+        config = self._config()
+
+        integrated = replace(
+            config.product_graph.products[1],
+            imports=(
+                "https://example.org/z",
+                "https://example.org/a",
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        text = render_ontology_header_bytes(
+            config,
+            "integrated",
+        ).decode(
+            "utf-8"
+        )
+
+        self.assertLess(
+            text.index(
+                "<https://example.org/z>"
+            ),
+            text.index(
+                "<https://example.org/a>"
+            ),
+        )
+
+    def test_formal_product_import_uses_release_identity(
+        self,
+    ):
+        config = self._config()
+
+        integrated = replace(
+            config.product_graph.products[1],
+            product_imports=(
+                ProductImport(
+                    product_key="alignment",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    config.product_graph.products[0],
+                    integrated,
+                ),
+            ),
+        )
+
+        text = render_ontology_header_bytes(
+            config,
+            "integrated",
+            self._context(),
+        ).decode(
+            "utf-8"
+        )
+
+        self.assertIn(
+            (
+                "<https://example.org/releases/"
+                "2099-01-02/alignment>"
+            ),
+            text,
+        )
+
+        self.assertNotIn(
+            (
+                f"<{self.OWL_IMPORTS}> "
+                "<https://example.org/alignment>"
+            ),
+            text,
+        )
+
+    def test_duplicate_resolved_imports_are_rejected(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            imports=(
+                "https://example.org/external",
+                "https://example.org/external",
+            ),
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    config.product_graph.products[1],
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            render_ontology_header_bytes(
+                config,
+                "alignment",
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "DUPLICATE_ONTOLOGY_IMPORT",
+        )
+
+    def test_annotation_rule_cannot_emit_owl_imports(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=self.OWL_IMPORTS,
+                    object_kind="iri",
+                    fixed_value=(
+                        "https://example.org/not-governed"
+                    ),
+                ),
+            )
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            render_ontology_header_bytes(
+                config,
+                "integrated",
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "RESERVED_ONTOLOGY_HEADER_PREDICATE",
+        )
+
+    def test_header_requires_stable_ontology_identity(
+        self,
+    ):
+        config = self._config()
+
+        alignment = replace(
+            config.product_graph.products[0],
+            stable_ontology_iri=None,
+        )
+
+        config = replace(
+            config,
+            product_graph=ProductGraph(
+                products=(
+                    alignment,
+                    config.product_graph.products[1],
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            render_ontology_header_bytes(
+                config,
+                "alignment",
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "ANNOTATION_VALUE_SOURCE_UNAVAILABLE",
+        )
+
+    def test_header_is_deterministic_full_iri_and_exactly_one_final_lf(
+        self,
+    ):
+        config = self._config(
+            (
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/label"
+                    ),
+                    object_kind="plain_literal",
+                    value_source="product.label",
+                ),
+            )
+        )
+
+        first = render_ontology_header_bytes(
+            config,
+            "integrated",
+        )
+
+        second = render_ontology_header_bytes(
+            config,
+            "integrated",
+        )
+
+        self.assertEqual(
+            first,
+            second,
+        )
+
+        self.assertTrue(
+            first.endswith(
+                b".\n"
+            )
+        )
+
+        self.assertFalse(
+            first.endswith(
+                b"\n\n"
+            )
+        )
+
+        self.assertNotIn(
+            b"@prefix",
+            first,
+        )
+
+        self.assertNotIn(
+            b"owl:",
+            first,
         )
 
 

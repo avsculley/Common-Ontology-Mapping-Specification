@@ -167,3 +167,53 @@ The evaluator does not inspect product dependencies or ontology imports.
 The output remains an ordered tuple of project-neutral `OntologyAnnotation`
 values. Ontology-subject selection and complete Turtle ontology-header assembly
 remain separate later operations.
+
+## Generic ontology-header assembly
+
+`render_ontology_header_bytes(config, product_key, context=None)` assembles the
+semantic publication primitives into one deterministic Turtle ontology
+statement.
+
+The ontology subject is always the configured product
+`stable_ontology_iri`. Formal publication does not replace that subject with
+the release-version IRI. A project that wants an `owl:versionIRI` or analogous
+release annotation configures that predicate through its annotation rules.
+
+The structural order is fixed by the framework:
+
+1. `<stable ontology IRI> a <owl:Ontology>`;
+2. evaluated annotations in configured annotation-rule order;
+3. one structural `<owl:imports>` predicate when resolved imports exist.
+
+Resolved import values preserve the order produced by the import resolver.
+Duplicate resolved import IRIs are rejected rather than silently deduplicated.
+
+`owl:imports` is reserved structural header policy. It cannot also be emitted
+through a publication annotation rule.
+
+### Full-IRI core serialization
+
+The generic header primitive renders every IRI in full `<...>` form. It emits
+no prefix declarations and performs no QName compaction.
+
+This is deliberate. Vocabulary prefix bindings and product
+`serialization_profile` configuration exist elsewhere in COMS, but the
+publication core does not yet define a generic prefix-selection or
+prefix-ordering policy.
+
+A later serialization-profile layer may compact an equivalent representation
+without changing the publication semantics established here.
+
+### Byte boundary
+
+The returned bytes contain only the ontology statement and terminate with
+exactly one LF.
+
+They do not contain:
+
+- a generated-file comment;
+- an `@prefix` block;
+- a blank-line body separator;
+- ontology-body axioms.
+
+Whole-document composition remains a later serialization operation.
