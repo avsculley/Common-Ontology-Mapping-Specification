@@ -46,7 +46,8 @@ release
 
 Unknown keys are schema errors.
 
-`validation_profiles` may be omitted. The other major sections are required.
+`validation_profiles` and `release` may be omitted. The other major sections
+are required.
 
 ## Project
 
@@ -291,9 +292,13 @@ release_notes_path = "release/README.md"
 required_release_note_sections = ["Products", "Validation"]
 ```
 
-`archive_prefix` is required.
+The entire `release` section may be omitted when a mapping project does not
+define formal release or package behavior.
 
-All other release-layout fields are optional.
+All release-layout fields, including `archive_prefix`, are optional in schema
+v1. A later framework operation that actually constructs or validates a
+release package is responsible for requiring the release configuration needed
+for that operation.
 
 ## Validation boundary
 

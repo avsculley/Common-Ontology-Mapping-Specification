@@ -1264,7 +1264,6 @@ def parse_project_config(
         data,
         "release",
         "release",
-        required=True,
     )
 
     parser.check_keys(
@@ -1284,11 +1283,10 @@ def parse_project_config(
     )
 
     release_layout = ReleaseLayout(
-        archive_prefix=parser.string(
+        archive_prefix=parser.optional_string(
             release,
             "archive_prefix",
             "release.archive_prefix",
-            required=True,
         ),
         package_members=parser.string_tuple(
             release,

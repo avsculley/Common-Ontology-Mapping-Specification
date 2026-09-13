@@ -189,7 +189,7 @@ class PublicationProfile:
 class ReleaseLayout:
     """Declarative release-package and archive layout."""
 
-    archive_prefix: str
+    archive_prefix: str | None = None
     package_members: tuple[str, ...] = ()
     source_artifacts: tuple[str, ...] = ()
     evidence_artifacts: tuple[str, ...] = ()

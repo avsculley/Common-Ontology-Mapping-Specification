@@ -178,6 +178,33 @@ class ConfigurationSchemaTests(unittest.TestCase):
             (),
         )
 
+    def test_release_configuration_may_be_omitted(self):
+        data = self._mapping()
+        del data["release"]
+
+        config = parse_project_config(
+            data
+        )
+
+        self.assertIsNone(
+            config.release_layout.archive_prefix,
+        )
+
+        self.assertEqual(
+            config.release_layout.package_members,
+            (),
+        )
+
+        self.assertEqual(
+            config.release_layout.product_artifacts,
+            (),
+        )
+
+        self.assertEqual(
+            validate_project_config(config),
+            (),
+        )
+
     def test_publication_title_defaults_to_project_title(self):
         config = parse_project_config(
             self._mapping()
