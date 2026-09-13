@@ -17,6 +17,9 @@ from .mapping_expression import (
     canonicalize_expression,
     normalize_nfc as _nfc,
 )
+from .mapping_record import (
+    GovernedMappingRecord,
+)
 
 
 CANONICALIZATION_VERSION = "coms-row-expression-v1"
@@ -71,6 +74,29 @@ class CanonicalRowInput:
     expression: ExpressionNode | None = None
     target_property_iri: str | None = None
     property_chain: tuple[str, ...] = ()
+
+
+def canonical_input_for_mapping_record(
+    record: GovernedMappingRecord,
+    location: RowLocation,
+) -> CanonicalRowInput:
+    """Adapt one governed semantic record to the row-identity boundary."""
+
+    return CanonicalRowInput(
+        row_id=record.row_id,
+        location=location,
+        subject_iri=record.subject_iri,
+        predicate_iri=record.predicate_iri,
+        mapping_type=record.mapping_type,
+        reasoning=record.reasoning,
+        expression=record.expression,
+        target_property_iri=(
+            record.target_property_iri
+        ),
+        property_chain=(
+            record.property_chain
+        ),
+    )
 
 
 @dataclass(frozen=True)
