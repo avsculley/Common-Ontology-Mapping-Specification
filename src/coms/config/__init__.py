@@ -17,9 +17,11 @@ from .model import (
     VocabularyRole,
     WorkbookProfile,
 )
+from .validation import ConfigIssue, validate_project_config
 
 __all__ = [
     "CatalogMapping",
+    "ConfigIssue",
     "ExpressionProfile",
     "FixedCountPolicy",
     "HeaderBinding",
@@ -34,4 +36,5 @@ __all__ = [
     "VocabularyProfile",
     "VocabularyRole",
     "WorkbookProfile",
+    "validate_project_config",
 ]
