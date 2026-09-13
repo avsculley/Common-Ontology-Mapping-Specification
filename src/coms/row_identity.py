@@ -6,10 +6,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import unicodedata
 import uuid
 from dataclasses import dataclass
 from typing import Iterable
+
+from .mapping_expression import (
+    ExpressionNode,
+    MappingExpressionError,
+    canonical_iri_term as _iri,
+    canonicalize_expression,
+    normalize_nfc as _nfc,
+)
 
 
 CANONICALIZATION_VERSION = "coms-row-expression-v1"
@@ -45,13 +52,6 @@ class RowLocation:
         return f"{self.worksheet}!{self.row_number}"
 
 
-@dataclass(frozen=True)
-class ExpressionNode:
-    kind: str
-    iri: str | None = None
-    children: tuple["ExpressionNode", ...] = ()
-    property_iri: str | None = None
-    filler: "ExpressionNode | None" = None
 
 
 @dataclass(frozen=True)
@@ -176,15 +176,8 @@ def validate_row_id(value: object, location: RowLocation | None = None) -> str:
     return value
 
 
-def _nfc(value: str) -> str:
-    return unicodedata.normalize("NFC", value)
 
 
-def _iri(value: str) -> str:
-    normalized = _nfc(value)
-    if not normalized:
-        raise ValueError("IRI must be nonempty")
-    return f"<{normalized}>"
 
 
 def _unsupported(row: CanonicalRowInput, message: str) -> ComsRowIdentityError:
@@ -193,36 +186,22 @@ def _unsupported(row: CanonicalRowInput, message: str) -> ComsRowIdentityError:
     )
 
 
-def _flatten(node: ExpressionNode, kind: str) -> tuple[ExpressionNode, ...]:
-    flattened: list[ExpressionNode] = []
-    for child in node.children:
-        if child.kind == kind:
-            flattened.extend(_flatten(child, kind))
-        else:
-            flattened.append(child)
-    return tuple(flattened)
 
 
-def _canonical_expression_node(node: ExpressionNode, row: CanonicalRowInput) -> str:
-    if node.kind == "named":
-        if node.iri is None:
-            raise _unsupported(row, "named expression lacks an IRI")
-        return _iri(node.iri)
-    if node.kind in {"intersection", "union"}:
-        flattened = _flatten(node, node.kind)
-        if not flattened:
-            raise _unsupported(row, f"{node.kind} expression has no operands")
-        operands = sorted({_canonical_expression_node(child, row) for child in flattened})
-        if len(operands) == 1:
-            return operands[0]
-        operator = "ObjectIntersectionOf" if node.kind == "intersection" else "ObjectUnionOf"
-        return f"{operator}({' '.join(operands)})"
-    if node.kind == "some":
-        if node.property_iri is None or node.filler is None:
-            raise _unsupported(row, "existential restriction lacks a property or filler")
-        filler = _canonical_expression_node(node.filler, row)
-        return f"ObjectSomeValuesFrom({_iri(node.property_iri)} {filler})"
-    raise _unsupported(row, f"unsupported expression node kind {node.kind!r}")
+def _canonical_expression_node(
+    node: ExpressionNode,
+    row: CanonicalRowInput,
+) -> str:
+    try:
+        return canonicalize_expression(
+            node
+        )
+    except MappingExpressionError as exc:
+        raise _unsupported(
+            row,
+            str(exc),
+        ) from exc
+
 
 
 def canonicalize_processed_row(row: CanonicalRowInput) -> CanonicalRowExpression:
