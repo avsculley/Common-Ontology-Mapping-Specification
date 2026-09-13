@@ -369,6 +369,7 @@ Recommended fields:
 - permitted unsatisfiable classes;
 - positive entailment tests;
 - negative entailment tests;
+- instance-data tests;
 - SWRL validation;
 - fixed-count policies;
 - project-specific validation commands.
