@@ -13,7 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from string import Formatter
 
-from .config.model import ProductDefinition
+from .config.model import (
+    ProductDefinition,
+    ProductGraph,
+)
 from .release_context import (
     FormalReleaseContext,
     validate_formal_release_context,
@@ -224,3 +227,187 @@ def release_version_iri(
             validated.release_identifier
         )
     )
+
+
+def _product_import_target(
+    source: ProductDefinition,
+    graph: ProductGraph,
+    imported_key: str,
+    index: int,
+) -> ProductDefinition:
+    """Resolve one governed product-import reference without inference."""
+
+    matches = tuple(
+        product
+        for product in graph.products
+        if product.product_key == imported_key
+    )
+
+    field = (
+        f"products.{source.product_key}."
+        f"product_imports[{index}].product_key"
+    )
+
+    if not matches:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="UNKNOWN_PRODUCT_IMPORT_TARGET",
+                    field=field,
+                    message=(
+                        "no configured product has key "
+                        f"{imported_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    if len(matches) > 1:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="AMBIGUOUS_PRODUCT_IMPORT_TARGET",
+                    field=field,
+                    message=(
+                        "more than one configured product "
+                        f"has key {imported_key!r}"
+                    ),
+                ),
+            )
+        )
+
+    return matches[0]
+
+
+def _stable_product_import_iri(
+    target: ProductDefinition,
+) -> str:
+    """Return one governed product's stable ontology identity."""
+
+    value = target.stable_ontology_iri
+
+    if value in {
+        None,
+        "",
+    }:
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="MISSING_STABLE_IMPORT_IDENTITY",
+                    field=(
+                        f"products.{target.product_key}."
+                        "stable_ontology_iri"
+                    ),
+                    message=(
+                        "governed product import requires "
+                        "a stable ontology IRI"
+                    ),
+                ),
+            )
+        )
+
+    return value
+
+
+def development_import_iris(
+    product: ProductDefinition,
+    graph: ProductGraph,
+) -> tuple[str, ...]:
+    """Resolve exact development ontology imports.
+
+    Literal ``imports`` are emitted first in configured order. Governed
+    ``product_imports`` follow in configured order and always resolve to the
+    imported product's stable ontology IRI.
+
+    ``product_dependencies`` have no ontology-import semantics.
+    """
+
+    result = list(
+        product.imports
+    )
+
+    for index, imported in enumerate(
+        product.product_imports
+    ):
+        target = _product_import_target(
+            product,
+            graph,
+            imported.product_key,
+            index,
+        )
+
+        result.append(
+            _stable_product_import_iri(
+                target
+            )
+        )
+
+    return tuple(result)
+
+
+def formal_import_iris(
+    product: ProductDefinition,
+    graph: ProductGraph,
+    context: FormalReleaseContext,
+) -> tuple[str, ...]:
+    """Resolve exact formal-release ontology imports.
+
+    Literal ``imports`` are retained exactly as configured. Governed product
+    imports resolve to either the target product's stable ontology IRI or its
+    release version IRI according to each ``formal_target``.
+
+    ``product_dependencies`` are intentionally ignored.
+    """
+
+    validated = validate_formal_release_context(
+        context
+    )
+
+    result = list(
+        product.imports
+    )
+
+    for index, imported in enumerate(
+        product.product_imports
+    ):
+        target = _product_import_target(
+            product,
+            graph,
+            imported.product_key,
+            index,
+        )
+
+        if imported.formal_target == "stable":
+            result.append(
+                _stable_product_import_iri(
+                    target
+                )
+            )
+            continue
+
+        if imported.formal_target == "release":
+            result.append(
+                release_version_iri(
+                    target,
+                    validated,
+                )
+            )
+            continue
+
+        raise PublicationError(
+            (
+                PublicationIssue(
+                    code="UNSUPPORTED_PRODUCT_IMPORT_FORMAL_TARGET",
+                    field=(
+                        f"products.{product.product_key}."
+                        f"product_imports[{index}].formal_target"
+                    ),
+                    message=(
+                        "expected stable or release; got "
+                        f"{imported.formal_target!r}"
+                    ),
+                ),
+            )
+        )
+
+    return tuple(result)

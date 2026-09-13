@@ -240,6 +240,17 @@ For example, a product may declare:
 This declaration is independent of whether `alignment` also occurs in the
 product's `dependencies` list.
 
+Publication import resolution is deterministic:
+
+1. literal `imports` are emitted first, in configured order;
+2. governed `product_imports` are emitted second, in configured order.
+
+Development publication resolves every governed product import to the target
+product's `stable_ontology_iri`. Formal publication resolves each governed
+product import according to its explicit `formal_target`.
+
+`dependencies` are never consulted when calculating ontology imports.
+
 ## Validation profiles
 
 ```toml

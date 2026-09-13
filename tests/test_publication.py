@@ -1,8 +1,14 @@
 import unittest
 
-from coms.config import ProductDefinition
+from coms.config import (
+    ProductDefinition,
+    ProductGraph,
+    ProductImport,
+)
 from coms.publication import (
     PublicationError,
+    development_import_iris,
+    formal_import_iris,
     release_iri_pattern_issues,
     release_version_iri,
 )
@@ -261,6 +267,427 @@ class PublicationVersioningTests(
             context.exception.issues[0].code,
             "MISSING_RELEASE_IRI_PATTERN",
         )
+
+
+
+
+class PublicationImportResolutionTests(
+    unittest.TestCase
+):
+    def _context(
+        self,
+    ) -> FormalReleaseContext:
+        return FormalReleaseContext(
+            release_identifier="2099-01-02",
+            release_date="2099-01-02",
+            git_tag="v2099-01-02",
+            source_commit=(
+                "0123456789abcdef"
+                "0123456789abcdef"
+                "01234567"
+            ),
+        )
+
+    def _upstream(
+        self,
+        *,
+        key: str = "upstream",
+        stable: str | None = (
+            "https://example.org/upstream"
+        ),
+        pattern: str | None = (
+            "https://example.org/releases/"
+            "{release_identifier}/upstream"
+        ),
+    ) -> ProductDefinition:
+        return ProductDefinition(
+            product_key=key,
+            output_path=(
+                f"build/{key}.ttl"
+            ),
+            product_type="mapping",
+            stable_ontology_iri=stable,
+            release_iri_pattern=pattern,
+        )
+
+    def test_development_imports_are_literal_then_stable_products(
+        self,
+    ):
+        alpha = self._upstream(
+            key="alpha",
+            stable="https://example.org/alpha",
+        )
+
+        beta = self._upstream(
+            key="beta",
+            stable="https://example.org/beta",
+        )
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            imports=(
+                "https://example.org/external-a",
+                "https://example.org/external-b",
+            ),
+            product_imports=(
+                ProductImport(
+                    product_key="beta",
+                    formal_target="release",
+                ),
+                ProductImport(
+                    product_key="alpha",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        observed = development_import_iris(
+            consumer,
+            ProductGraph(
+                products=(
+                    consumer,
+                    alpha,
+                    beta,
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            observed,
+            (
+                "https://example.org/external-a",
+                "https://example.org/external-b",
+                "https://example.org/beta",
+                "https://example.org/alpha",
+            ),
+        )
+
+    def test_formal_imports_resolve_stable_and_release_targets(
+        self,
+    ):
+        stable_target = self._upstream(
+            key="stable-target",
+            stable=(
+                "https://example.org/stable-target"
+            ),
+        )
+
+        release_target = self._upstream(
+            key="release-target",
+            stable=(
+                "https://example.org/release-target"
+            ),
+            pattern=(
+                "https://example.org/releases/"
+                "{release_identifier}/release-target"
+            ),
+        )
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            imports=(
+                "https://example.org/external",
+            ),
+            product_imports=(
+                ProductImport(
+                    product_key="stable-target",
+                    formal_target="stable",
+                ),
+                ProductImport(
+                    product_key="release-target",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        observed = formal_import_iris(
+            consumer,
+            ProductGraph(
+                products=(
+                    consumer,
+                    stable_target,
+                    release_target,
+                ),
+            ),
+            self._context(),
+        )
+
+        self.assertEqual(
+            observed,
+            (
+                "https://example.org/external",
+                "https://example.org/stable-target",
+                (
+                    "https://example.org/releases/"
+                    "2099-01-02/release-target"
+                ),
+            ),
+        )
+
+    def test_product_dependencies_have_no_import_semantics(
+        self,
+    ):
+        build_helper = self._upstream(
+            key="build-helper",
+        )
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            product_dependencies=(
+                "build-helper",
+            ),
+        )
+
+        graph = ProductGraph(
+            products=(
+                consumer,
+                build_helper,
+            ),
+        )
+
+        self.assertEqual(
+            development_import_iris(
+                consumer,
+                graph,
+            ),
+            (),
+        )
+
+        self.assertEqual(
+            formal_import_iris(
+                consumer,
+                graph,
+                self._context(),
+            ),
+            (),
+        )
+
+    def test_unknown_product_import_target_is_structured_error(
+        self,
+    ):
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            product_imports=(
+                ProductImport(
+                    product_key="missing",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            development_import_iris(
+                consumer,
+                ProductGraph(
+                    products=(
+                        consumer,
+                    ),
+                ),
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "UNKNOWN_PRODUCT_IMPORT_TARGET",
+        )
+
+    def test_duplicate_product_keys_make_import_target_ambiguous(
+        self,
+    ):
+        first = self._upstream(
+            key="upstream",
+        )
+
+        second = self._upstream(
+            key="upstream",
+            stable=(
+                "https://example.org/other-upstream"
+            ),
+        )
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            product_imports=(
+                ProductImport(
+                    product_key="upstream",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            development_import_iris(
+                consumer,
+                ProductGraph(
+                    products=(
+                        consumer,
+                        first,
+                        second,
+                    ),
+                ),
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "AMBIGUOUS_PRODUCT_IMPORT_TARGET",
+        )
+
+    def test_missing_stable_identity_is_structured_error(
+        self,
+    ):
+        upstream = self._upstream(
+            stable=None,
+        )
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            product_imports=(
+                ProductImport(
+                    product_key="upstream",
+                    formal_target="stable",
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            development_import_iris(
+                consumer,
+                ProductGraph(
+                    products=(
+                        consumer,
+                        upstream,
+                    ),
+                ),
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "MISSING_STABLE_IMPORT_IDENTITY",
+        )
+
+    def test_release_target_uses_version_pattern_validation(
+        self,
+    ):
+        upstream = self._upstream(
+            pattern=None,
+        )
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            product_imports=(
+                ProductImport(
+                    product_key="upstream",
+                    formal_target="release",
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            formal_import_iris(
+                consumer,
+                ProductGraph(
+                    products=(
+                        consumer,
+                        upstream,
+                    ),
+                ),
+                self._context(),
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "MISSING_RELEASE_IRI_PATTERN",
+        )
+
+    def test_invalid_formal_target_is_structured_error(
+        self,
+    ):
+        upstream = self._upstream()
+
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+            product_imports=(
+                ProductImport(
+                    product_key="upstream",
+                    formal_target="unsupported",
+                ),
+            ),
+        )
+
+        with self.assertRaises(
+            PublicationError
+        ) as context:
+            formal_import_iris(
+                consumer,
+                ProductGraph(
+                    products=(
+                        consumer,
+                        upstream,
+                    ),
+                ),
+                self._context(),
+            )
+
+        self.assertEqual(
+            context.exception.issues[0].code,
+            "UNSUPPORTED_PRODUCT_IMPORT_FORMAL_TARGET",
+        )
+
+    def test_formal_imports_require_valid_release_context(
+        self,
+    ):
+        consumer = ProductDefinition(
+            product_key="consumer",
+            output_path="build/consumer.ttl",
+            product_type="mapping",
+        )
+
+        invalid = FormalReleaseContext(
+            release_identifier="2099-1-2",
+            release_date="2099-01-02",
+            git_tag="v2099-01-02",
+            source_commit=(
+                "0123456789abcdef"
+                "0123456789abcdef"
+                "01234567"
+            ),
+        )
+
+        with self.assertRaises(
+            FormalReleaseContextError
+        ):
+            formal_import_iris(
+                consumer,
+                ProductGraph(
+                    products=(
+                        consumer,
+                    ),
+                ),
+                invalid,
+            )
 
 
 if __name__ == "__main__":
