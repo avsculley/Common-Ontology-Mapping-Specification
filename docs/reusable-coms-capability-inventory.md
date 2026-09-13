@@ -388,7 +388,8 @@ Recommended fields:
 - creator and contributor metadata;
 - development status;
 - product labels;
-- product descriptions.
+- product descriptions;
+- ordered ontology-annotation rules.
 
 ### ReleaseLayout
 

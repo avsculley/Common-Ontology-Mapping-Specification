@@ -82,3 +82,31 @@ string escaping for literal lexical forms.
 Predicate rendering, prefix selection, prefix compaction, complete triple
 assembly, and ontology-header byte rendering are intentionally deferred until
 the annotation-policy layer has been defined.
+
+## Declarative annotation rules
+
+`PublicationProfile.annotation_rules` is an ordered tuple of project policy.
+
+Each rule configures:
+
+- predicate IRI;
+- object kind;
+- development/formal applicability;
+- exactly one configured value source or fixed value;
+- optional language tag;
+- optional datatype IRI;
+- optional product-key scope.
+
+Rule order is semantically significant and becomes annotation order when rules
+are evaluated.
+
+The framework defines a finite set of value-source identifiers so configuration
+errors are detected before publication. Some sources are scalar and some are
+multi-valued; rule evaluation will later expand multi-valued sources
+deterministically.
+
+Release-context value sources and the derived product release-version IRI are
+formal-only. They cannot be used by rules that apply to development output.
+
+This configuration layer still does not evaluate rules or assemble ontology
+headers.

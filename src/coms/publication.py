@@ -13,9 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from string import Formatter
-from typing import Literal, get_args
+from typing import get_args
 
 from .config.model import (
+    AnnotationObjectKind,
     ProductDefinition,
     ProductGraph,
 )
@@ -27,13 +28,6 @@ from .release_context import (
 
 _RELEASE_IDENTIFIER_FIELD = "release_identifier"
 
-
-AnnotationObjectKind = Literal[
-    "iri",
-    "plain_literal",
-    "language_literal",
-    "typed_literal",
-]
 
 _ANNOTATION_OBJECT_KINDS = frozenset(
     get_args(AnnotationObjectKind)

@@ -265,6 +265,66 @@ class ConfigurationSchemaTests(unittest.TestCase):
             (),
         )
 
+    def test_publication_annotation_rules_parse_in_order(self):
+        data = self._mapping()
+
+        data["publication"]["annotation_rules"] = [
+            {
+                "predicate_iri": (
+                    "https://example.org/vocab/label"
+                ),
+                "object_kind": "language_literal",
+                "value_source": "product.label",
+                "language": "en",
+            },
+            {
+                "predicate_iri": (
+                    "https://example.org/vocab/released"
+                ),
+                "object_kind": "typed_literal",
+                "applicability": "formal",
+                "value_source": "release.release_date",
+                "datatype_iri": (
+                    "https://example.org/vocab/date"
+                ),
+                "product_keys": [
+                    "integrated",
+                ],
+            },
+        ]
+
+        config = parse_project_config(
+            data
+        )
+
+        self.assertEqual(
+            tuple(
+                rule.predicate_iri
+                for rule
+                in config.publication.annotation_rules
+            ),
+            (
+                "https://example.org/vocab/label",
+                "https://example.org/vocab/released",
+            ),
+        )
+
+        self.assertEqual(
+            config.publication.annotation_rules[
+                1
+            ].product_keys,
+            (
+                "integrated",
+            ),
+        )
+
+        self.assertEqual(
+            validate_project_config(
+                config
+            ),
+            (),
+        )
+
     def test_publication_title_defaults_to_project_title(self):
         config = parse_project_config(
             self._mapping()

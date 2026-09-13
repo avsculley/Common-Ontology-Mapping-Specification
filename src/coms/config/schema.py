@@ -23,6 +23,7 @@ from .model import (
     ProductImport,
     ProductText,
     ProjectConfig,
+    PublicationAnnotationRule,
     PublicationProfile,
     ReleaseLayout,
     ValidationProfile,
@@ -927,6 +928,87 @@ def _parse_validation_profiles(
     return tuple(result)
 
 
+def _parse_publication_annotation_rules(
+    parser: _SchemaParser,
+    publication: Mapping[str, Any],
+) -> tuple[PublicationAnnotationRule, ...]:
+    result: list[PublicationAnnotationRule] = []
+
+    for index, entry in parser.table_array(
+        publication,
+        "annotation_rules",
+        "publication.annotation_rules",
+    ):
+        path = (
+            f"publication.annotation_rules[{index}]"
+        )
+
+        parser.check_keys(
+            entry,
+            path,
+            {
+                "predicate_iri",
+                "object_kind",
+                "applicability",
+                "value_source",
+                "fixed_value",
+                "language",
+                "datatype_iri",
+                "product_keys",
+            },
+        )
+
+        result.append(
+            PublicationAnnotationRule(
+                predicate_iri=parser.string(
+                    entry,
+                    "predicate_iri",
+                    f"{path}.predicate_iri",
+                    required=True,
+                ),
+                object_kind=parser.string(
+                    entry,
+                    "object_kind",
+                    f"{path}.object_kind",
+                    required=True,
+                ),
+                applicability=parser.string(
+                    entry,
+                    "applicability",
+                    f"{path}.applicability",
+                    default="both",
+                ),
+                value_source=parser.optional_string(
+                    entry,
+                    "value_source",
+                    f"{path}.value_source",
+                ),
+                fixed_value=parser.optional_string(
+                    entry,
+                    "fixed_value",
+                    f"{path}.fixed_value",
+                ),
+                language=parser.optional_string(
+                    entry,
+                    "language",
+                    f"{path}.language",
+                ),
+                datatype_iri=parser.optional_string(
+                    entry,
+                    "datatype_iri",
+                    f"{path}.datatype_iri",
+                ),
+                product_keys=parser.string_tuple(
+                    entry,
+                    "product_keys",
+                    f"{path}.product_keys",
+                ),
+            )
+        )
+
+    return tuple(result)
+
+
 def _parse_product_texts(
     parser: _SchemaParser,
     publication: Mapping[str, Any],
@@ -1245,6 +1327,7 @@ def parse_project_config(
             "development_status",
             "product_labels",
             "product_descriptions",
+            "annotation_rules",
         },
     )
 
@@ -1309,6 +1392,10 @@ def parse_project_config(
             parser,
             publication,
             "product_descriptions",
+        ),
+        annotation_rules=_parse_publication_annotation_rules(
+            parser,
+            publication,
         ),
     )
 

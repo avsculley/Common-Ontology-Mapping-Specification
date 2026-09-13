@@ -9,6 +9,7 @@ from coms.config import (
     ProductGraph,
     ProductImport,
     ProjectConfig,
+    PublicationAnnotationRule,
     PublicationProfile,
     ReleaseLayout,
     ValidationProfile,
@@ -272,6 +273,49 @@ class ConfigurationModelTests(unittest.TestCase):
             product.product_dependencies,
             (
                 "build-helper",
+            ),
+        )
+
+    def test_publication_annotation_rules_are_ordered_configuration_data(
+        self,
+    ):
+        first = PublicationAnnotationRule(
+            predicate_iri=(
+                "https://example.org/vocab/label"
+            ),
+            object_kind="language_literal",
+            value_source="product.label",
+            language="en",
+        )
+
+        second = PublicationAnnotationRule(
+            predicate_iri=(
+                "https://example.org/vocab/released"
+            ),
+            object_kind="typed_literal",
+            applicability="formal",
+            value_source="release.release_date",
+            datatype_iri=(
+                "https://example.org/vocab/date"
+            ),
+            product_keys=(
+                "integrated",
+            ),
+        )
+
+        profile = PublicationProfile(
+            project_title="Synthetic",
+            annotation_rules=(
+                first,
+                second,
+            ),
+        )
+
+        self.assertEqual(
+            profile.annotation_rules,
+            (
+                first,
+                second,
             ),
         )
 

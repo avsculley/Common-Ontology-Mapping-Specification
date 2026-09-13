@@ -311,6 +311,63 @@ text = "Integrated mapping product for the synthetic example."
 `publication.project_title` is optional. If omitted, it defaults to
 `project.title`.
 
+Annotation rules are ordered project policy. For example:
+
+```toml
+[[publication.annotation_rules]]
+predicate_iri = "https://example.org/vocab/label"
+object_kind = "language_literal"
+applicability = "both"
+value_source = "product.label"
+language = "en"
+
+[[publication.annotation_rules]]
+predicate_iri = "https://example.org/vocab/released"
+object_kind = "typed_literal"
+applicability = "formal"
+value_source = "release.release_date"
+datatype_iri = "https://example.org/vocab/date"
+
+[[publication.annotation_rules]]
+predicate_iri = "https://example.org/vocab/status"
+object_kind = "iri"
+applicability = "formal"
+fixed_value = "https://example.org/status/released"
+product_keys = ["integrated"]
+```
+
+Rule order is publication order. An empty `product_keys` array applies the rule
+to every configured product.
+
+Exactly one of `value_source` and `fixed_value` must be configured.
+
+Supported `applicability` values are `development`, `formal`, and `both`.
+
+Supported value sources are:
+
+- `publication.project_title`
+- `publication.repository_iri`
+- `publication.license_iri`
+- `publication.creators`
+- `publication.contributors`
+- `publication.development_status`
+- `project.generated_warning`
+- `product.label`
+- `product.description`
+- `product.type`
+- `product.stable_ontology_iri`
+- `product.release_version_iri`
+- `release.release_identifier`
+- `release.release_date`
+- `release.git_tag`
+- `release.source_commit`
+
+The release-context sources and `product.release_version_iri` are formal-only
+sources and cannot apply to development output.
+
+COMS does not assign RDF predicates to these sources. Predicates, object kinds,
+language tags, datatype IRIs, applicability, and order are project policy.
+
 Other optional publication fields are:
 
 - `stable_ontology_iris`
@@ -323,6 +380,7 @@ Other optional publication fields are:
 - `development_status`
 - `product_labels`
 - `product_descriptions`
+- `annotation_rules`
 
 ## Release
 

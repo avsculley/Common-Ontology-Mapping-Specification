@@ -91,6 +91,39 @@ class ExpressionProfile:
     canonicalization_version: str = ""
 
 
+AnnotationObjectKind = Literal[
+    "iri",
+    "plain_literal",
+    "language_literal",
+    "typed_literal",
+]
+
+PublicationAnnotationApplicability = Literal[
+    "development",
+    "formal",
+    "both",
+]
+
+PublicationAnnotationValueSource = Literal[
+    "publication.project_title",
+    "publication.repository_iri",
+    "publication.license_iri",
+    "publication.creators",
+    "publication.contributors",
+    "publication.development_status",
+    "project.generated_warning",
+    "product.label",
+    "product.description",
+    "product.type",
+    "product.stable_ontology_iri",
+    "product.release_version_iri",
+    "release.release_identifier",
+    "release.release_date",
+    "release.git_tag",
+    "release.source_commit",
+]
+
+
 ProductImportFormalTarget = Literal[
     "stable",
     "release",
@@ -192,6 +225,26 @@ class ProductText:
 
 
 @dataclass(frozen=True)
+class PublicationAnnotationRule:
+    """One ordered declarative ontology-annotation publication rule.
+
+    Rule tuple order is publication order. ``product_keys`` is an optional
+    scope filter; an empty tuple applies the rule to every configured product.
+
+    Exactly one of ``value_source`` and ``fixed_value`` must be configured.
+    """
+
+    predicate_iri: str
+    object_kind: AnnotationObjectKind
+    applicability: PublicationAnnotationApplicability = "both"
+    value_source: PublicationAnnotationValueSource | None = None
+    fixed_value: str | None = None
+    language: str | None = None
+    datatype_iri: str | None = None
+    product_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class PublicationProfile:
     """Project and product publication metadata policy."""
 
@@ -206,6 +259,7 @@ class PublicationProfile:
     development_status: str | None = None
     product_labels: tuple[ProductText, ...] = ()
     product_descriptions: tuple[ProductText, ...] = ()
+    annotation_rules: tuple[PublicationAnnotationRule, ...] = ()
 
 
 @dataclass(frozen=True)

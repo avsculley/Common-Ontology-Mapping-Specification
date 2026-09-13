@@ -11,9 +11,12 @@ from dataclasses import dataclass
 from typing import Iterable, get_args
 
 from .model import (
+    AnnotationObjectKind,
     ProductDefinition,
     ProductImportFormalTarget,
     ProjectConfig,
+    PublicationAnnotationApplicability,
+    PublicationAnnotationValueSource,
     VocabularyRole,
 )
 
@@ -24,6 +27,32 @@ _VOCABULARY_ROLES = frozenset(
 
 _PRODUCT_IMPORT_FORMAL_TARGETS = frozenset(
     get_args(ProductImportFormalTarget)
+)
+
+_ANNOTATION_OBJECT_KINDS = frozenset(
+    get_args(AnnotationObjectKind)
+)
+
+_PUBLICATION_ANNOTATION_APPLICABILITIES = frozenset(
+    get_args(
+        PublicationAnnotationApplicability
+    )
+)
+
+_PUBLICATION_ANNOTATION_VALUE_SOURCES = frozenset(
+    get_args(
+        PublicationAnnotationValueSource
+    )
+)
+
+_FORMAL_ONLY_ANNOTATION_VALUE_SOURCES = frozenset(
+    {
+        "product.release_version_iri",
+        "release.release_identifier",
+        "release.release_date",
+        "release.git_tag",
+        "release.source_commit",
+    }
 )
 
 
@@ -726,5 +755,250 @@ def validate_project_config(
                         ),
                     )
                 )
+
+    # ------------------------------------------------------------------
+    # Publication annotation-rule configuration
+    # ------------------------------------------------------------------
+
+    for index, rule in enumerate(
+        config.publication.annotation_rules
+    ):
+        path = (
+            f"publication.annotation_rules[{index}]"
+        )
+
+        object_kind_valid = (
+            rule.object_kind
+            in _ANNOTATION_OBJECT_KINDS
+        )
+
+        if not object_kind_valid:
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "invalid_annotation_object_kind"
+                    ),
+                    path=f"{path}.object_kind",
+                    message=(
+                        "expected one of: "
+                        + ", ".join(
+                            sorted(
+                                _ANNOTATION_OBJECT_KINDS
+                            )
+                        )
+                    ),
+                )
+            )
+
+        if (
+            rule.applicability
+            not in _PUBLICATION_ANNOTATION_APPLICABILITIES
+        ):
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "invalid_annotation_applicability"
+                    ),
+                    path=f"{path}.applicability",
+                    message=(
+                        "expected one of: "
+                        + ", ".join(
+                            sorted(
+                                _PUBLICATION_ANNOTATION_APPLICABILITIES
+                            )
+                        )
+                    ),
+                )
+            )
+
+        has_source = (
+            rule.value_source is not None
+        )
+        has_fixed = (
+            rule.fixed_value is not None
+        )
+
+        if has_source == has_fixed:
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "annotation_value_origin_count"
+                    ),
+                    path=path,
+                    message=(
+                        "exactly one of value_source "
+                        "and fixed_value must be configured"
+                    ),
+                )
+            )
+
+        if (
+            rule.value_source is not None
+            and rule.value_source
+            not in _PUBLICATION_ANNOTATION_VALUE_SOURCES
+        ):
+            issues.append(
+                ConfigIssue(
+                    code="invalid_annotation_value_source",
+                    path=f"{path}.value_source",
+                    message=(
+                        "unsupported annotation value source: "
+                        f"{rule.value_source}"
+                    ),
+                )
+            )
+
+        if (
+            rule.value_source
+            in _FORMAL_ONLY_ANNOTATION_VALUE_SOURCES
+            and rule.applicability
+            in {
+                "development",
+                "both",
+            }
+        ):
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "formal_only_annotation_source_"
+                        "in_development"
+                    ),
+                    path=f"{path}.value_source",
+                    message=(
+                        "release-context value source "
+                        "cannot apply to development output"
+                    ),
+                )
+            )
+
+        for key in _duplicate_values(
+            rule.product_keys
+        ):
+            issues.append(
+                ConfigIssue(
+                    code=(
+                        "duplicate_annotation_rule_product"
+                    ),
+                    path=f"{path}.product_keys",
+                    message=(
+                        "product key is listed more than once: "
+                        f"{key}"
+                    ),
+                )
+            )
+
+        for key in sorted(
+            set(rule.product_keys)
+        ):
+            if key not in product_keys:
+                issues.append(
+                    ConfigIssue(
+                        code=(
+                            "unknown_annotation_rule_product"
+                        ),
+                        path=f"{path}.product_keys",
+                        message=(
+                            "unknown product key: "
+                            f"{key}"
+                        ),
+                    )
+                )
+
+        if object_kind_valid:
+            if rule.object_kind in {
+                "iri",
+                "plain_literal",
+            }:
+                if rule.language is not None:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_language_not_allowed"
+                            ),
+                            path=f"{path}.language",
+                            message=(
+                                f"{rule.object_kind} objects "
+                                "cannot have a language tag"
+                            ),
+                        )
+                    )
+
+                if rule.datatype_iri is not None:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_datatype_not_allowed"
+                            ),
+                            path=f"{path}.datatype_iri",
+                            message=(
+                                f"{rule.object_kind} objects "
+                                "cannot have a datatype"
+                            ),
+                        )
+                    )
+
+            elif rule.object_kind == "language_literal":
+                if rule.language in {
+                    None,
+                    "",
+                }:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_language_required"
+                            ),
+                            path=f"{path}.language",
+                            message=(
+                                "language literals require "
+                                "a language tag"
+                            ),
+                        )
+                    )
+
+                if rule.datatype_iri is not None:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_datatype_not_allowed"
+                            ),
+                            path=f"{path}.datatype_iri",
+                            message=(
+                                "language literals cannot "
+                                "have a datatype"
+                            ),
+                        )
+                    )
+
+            elif rule.object_kind == "typed_literal":
+                if rule.language is not None:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_language_not_allowed"
+                            ),
+                            path=f"{path}.language",
+                            message=(
+                                "typed literals cannot have "
+                                "a language tag"
+                            ),
+                        )
+                    )
+
+                if rule.datatype_iri in {
+                    None,
+                    "",
+                }:
+                    issues.append(
+                        ConfigIssue(
+                            code=(
+                                "annotation_datatype_required"
+                            ),
+                            path=f"{path}.datatype_iri",
+                            message=(
+                                "typed literals require "
+                                "a datatype IRI"
+                            ),
+                        )
+                    )
 
     return _sorted_issues(issues)

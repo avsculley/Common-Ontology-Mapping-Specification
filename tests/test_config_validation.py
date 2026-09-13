@@ -11,6 +11,7 @@ from coms.config import (
     ProductImport,
     ProductText,
     ProjectConfig,
+    PublicationAnnotationRule,
     PublicationProfile,
     ReleaseLayout,
     ValidationProfile,
@@ -638,6 +639,202 @@ class ConfigurationValidationTests(unittest.TestCase):
                 stable_config
             ),
             (),
+        )
+
+    def test_annotation_rule_enumerations_are_validated(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/predicate"
+                    ),
+                    object_kind="unsupported",
+                    applicability="sometimes",
+                    value_source="unsupported.source",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertTrue(
+            {
+                "invalid_annotation_object_kind",
+                "invalid_annotation_applicability",
+                "invalid_annotation_value_source",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_annotation_rule_requires_exactly_one_value_origin(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/one"
+                    ),
+                    object_kind="plain_literal",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/two"
+                    ),
+                    object_kind="plain_literal",
+                    value_source=(
+                        "publication.project_title"
+                    ),
+                    fixed_value="fixed",
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        issues = tuple(
+            issue
+            for issue in validate_project_config(
+                config
+            )
+            if issue.code
+            == "annotation_value_origin_count"
+        )
+
+        self.assertEqual(
+            len(issues),
+            2,
+        )
+
+    def test_annotation_rule_product_scope_is_validated(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/predicate"
+                    ),
+                    object_kind="plain_literal",
+                    fixed_value="value",
+                    product_keys=(
+                        "missing",
+                        "missing",
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertTrue(
+            {
+                "duplicate_annotation_rule_product",
+                "unknown_annotation_rule_product",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_annotation_rule_object_shape_is_validated(self):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/language"
+                    ),
+                    object_kind="language_literal",
+                    fixed_value="value",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/typed"
+                    ),
+                    object_kind="typed_literal",
+                    fixed_value="value",
+                    language="en",
+                ),
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/iri"
+                    ),
+                    object_kind="iri",
+                    fixed_value=(
+                        "https://example.org/object"
+                    ),
+                    datatype_iri=(
+                        "https://example.org/datatype"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertTrue(
+            {
+                "annotation_language_required",
+                "annotation_datatype_required",
+                "annotation_language_not_allowed",
+                "annotation_datatype_not_allowed",
+            }.issubset(
+                self._codes(config)
+            )
+        )
+
+    def test_formal_only_annotation_sources_cannot_apply_to_development(
+        self,
+    ):
+        config = self._config()
+
+        publication = replace(
+            config.publication,
+            annotation_rules=(
+                PublicationAnnotationRule(
+                    predicate_iri=(
+                        "https://example.org/released"
+                    ),
+                    object_kind="plain_literal",
+                    applicability="both",
+                    value_source=(
+                        "release.release_identifier"
+                    ),
+                ),
+            ),
+        )
+
+        config = replace(
+            config,
+            publication=publication,
+        )
+
+        self.assertIn(
+            (
+                "formal_only_annotation_source_"
+                "in_development"
+            ),
+            self._codes(config),
         )
 
     def test_multi_product_dependency_cycle_is_reported(self):

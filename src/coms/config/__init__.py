@@ -1,6 +1,7 @@
 """Declarative configuration primitives for COMS."""
 
 from .model import (
+    AnnotationObjectKind,
     CatalogMapping,
     ExpressionProfile,
     FixedCountPolicy,
@@ -11,6 +12,9 @@ from .model import (
     ProductImportFormalTarget,
     ProductGraph,
     ProductText,
+    PublicationAnnotationApplicability,
+    PublicationAnnotationRule,
+    PublicationAnnotationValueSource,
     ProjectConfig,
     PublicationProfile,
     ReleaseLayout,
@@ -30,6 +34,7 @@ from .validation import ConfigIssue, validate_project_config
 
 __all__ = [
     "CatalogMapping",
+    "AnnotationObjectKind",
     "ConfigIssue",
     "ConfigSchemaError",
     "ConfigSchemaIssue",
@@ -42,6 +47,9 @@ __all__ = [
     "ProductImportFormalTarget",
     "ProductGraph",
     "ProductText",
+    "PublicationAnnotationApplicability",
+    "PublicationAnnotationRule",
+    "PublicationAnnotationValueSource",
     "ProjectConfig",
     "PublicationProfile",
     "ReleaseLayout",
