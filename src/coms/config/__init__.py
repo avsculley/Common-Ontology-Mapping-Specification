@@ -17,6 +17,7 @@ from .model import (
     VocabularyRole,
     WorkbookProfile,
 )
+from .loader import ConfigLoadError, load_project_config
 from .schema import (
     SUPPORTED_CONFIGURATION_SCHEMA_VERSION,
     ConfigSchemaError,
@@ -46,4 +47,8 @@ __all__ = [
     "VocabularyRole",
     "WorkbookProfile",
     "validate_project_config",
+    "ConfigLoadError",
+    "load_project_config",
+    "parse_project_config",
+
 ]

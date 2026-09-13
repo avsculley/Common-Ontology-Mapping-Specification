@@ -309,3 +309,31 @@ Schema parsing does **not**:
 
 Those responsibilities belong to configuration semantic validation or later
 runtime framework layers.
+
+## Loading TOML
+
+The public `load_project_config(path)` function is the filesystem-facing
+adapter for schema v1. It:
+
+1. opens the specified file in binary mode;
+2. decodes TOML using Python's standard-library `tomllib`;
+3. passes the decoded mapping to `parse_project_config`.
+
+Loading is deliberately separate from both schema parsing and semantic
+validation.
+
+`ConfigLoadError` reports file-read, TOML-syntax, or UTF-8 decoding failures.
+`ConfigSchemaError` continues to report external schema violations.
+
+A successful load does not imply that the configuration is semantically
+valid. Call `validate_project_config` separately to check cross-references,
+product dependency cycles, permit/prohibit constraints, and related project
+semantics.
+
+The loader does not:
+
+- resolve configured paths relative to the configuration file;
+- require referenced files or directories to exist;
+- inspect workbooks or ontologies;
+- invoke `validate_project_config`;
+- invoke parsers, reasoners, release tooling, or project commands.
