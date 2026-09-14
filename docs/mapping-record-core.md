@@ -13,11 +13,14 @@ source row or other input
 source-format parser / resolver
         |
         v
+mapping-record builder
+        |
+        v
 GovernedMappingRecord
         |
         +----> row identity / canonical axiom identity
         |
-        +----> future ontology compiler
+        +----> mapping compiler ----> ontology document composer
 ```
 
 ## Record semantics
@@ -35,8 +38,9 @@ A governed mapping record contains:
 - `property_chain` — an optional ordered tuple of resolved property IRIs.
 
 An active mapping uses one semantic target representation. An explicit blank
-mapping uses none. Structural enforcement remains in the established
-row-identity machinery during this compatibility-preserving extraction.
+mapping uses none. The builder enforces source-input construction rules, while
+the identity and compiler layers fail closed when handed malformed publicly
+constructible records.
 
 ## What is deliberately absent
 
@@ -76,4 +80,5 @@ subject, and canonical target.
 therefore retain the current API while new source adapters can target
 `GovernedMappingRecord`.
 
-This increment does not define workbook parsing or RDF/OWL compilation.
+This record module does not parse source formats or compile RDF/OWL. Those
+remain separate pipeline responsibilities.

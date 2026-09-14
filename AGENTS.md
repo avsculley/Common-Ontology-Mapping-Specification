@@ -9,10 +9,10 @@ Preserve the semantic architecture:
 ```text
 source adapter
 -> parser / resolver
+-> mapping-record builder
 -> GovernedMappingRecord
--> ExpressionNode
--> canonical mapping / authoritative axiom identity
--> compiler
+   |-> canonical mapping / authoritative axiom identity
+   +-> mapping compiler -> ontology document composer
 ```
 
 - Keep generic modules free of project-specific ontology and reasoner policy.

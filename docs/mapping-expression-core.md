@@ -62,6 +62,6 @@ row-located `UNSUPPORTED_CANONICAL_EXPRESSION` diagnostic. Existing canonical
 row JSON, expression hashes, and authoritative axiom identities therefore
 remain unchanged by this extraction.
 
-This module is still an intermediate representation and canonicalization layer.
-It does not parse workbook syntax and does not emit RDF/OWL graphs. Those are
-separate future parser and compiler layers.
+This module is an intermediate representation and canonicalization layer. It
+does not itself parse source syntax or emit RDF/OWL. Those separate
+responsibilities belong to `coms.mapping_parser` and `coms.mapping_compiler`.

@@ -101,8 +101,9 @@ This module does not:
 - construct `GovernedMappingRecord`;
 - emit RDF or OWL.
 
-Those responsibilities belong to configuration, source adapters, the future
-record builder, or the future ontology compiler.
+Those responsibilities belong to configuration, source adapters,
+`coms.mapping_record_builder`, `coms.mapping_compiler`, or
+`coms.ontology_document`, as appropriate.
 
 In particular, SSN/SOSA-specific source-prefix restrictions and local ontology
 graph loading remain reference-project adapter behavior rather than COMS core

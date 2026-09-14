@@ -7,7 +7,8 @@ governed semantic record:
 source adapter
 -> mapping-record builder
 -> GovernedMappingRecord
--> canonical identity / future ontology compiler
+   |-> canonical identity
+   +-> mapping compiler -> ontology document composer
 ```
 
 The source adapter remains responsible for source-token resolution and for

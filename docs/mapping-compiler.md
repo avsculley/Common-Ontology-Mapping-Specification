@@ -17,6 +17,7 @@ deduplicate, collapse, and order boolean class-expression operands before
 rendering inline Turtle blank-node and list syntax. An active record produces
 one complete statement ending in one LF; an explicit blank produces no bytes.
 
-This increment does not assemble multiple records into a product, add ontology
-headers or publication metadata, choose product membership, write files, run a
+Document composition is separate in `coms.ontology_document`. The compiler
+itself does not assemble multiple records into a product, add ontology headers
+or publication metadata, choose product membership, write files, run a
 reasoner, or construct releases or packages.
