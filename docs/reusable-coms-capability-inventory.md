@@ -12,7 +12,22 @@ The boundary is informed by:
 - the SSN-to-BFO and PROV-to-BFO comparative audit;
 - direct testing of PROV products with RDFLib and ROBOT/OWLAPI.
 
-No production code should be extracted until this boundary is approved.
+This inventory began as the extraction plan whose boundary was approved before
+implementation started.
+
+## Implementation status
+
+The project-neutral core now implements configuration, publication-header
+rendering, mapping expressions, parsing and resolver contracts, governed
+mapping-record construction, canonical row identity, single-record Turtle
+compilation, and header-plus-body ontology-document composition.
+
+The broader capability boundary and extraction phases below remain useful as
+design rationale and roadmap context. Product-membership selection, source
+workbook adapters, file-writing transactions, cross-parser and reasoner
+orchestration, and release manifest/package/archive mechanics remain outside
+the implemented milestone. References to future phases do not imply that
+parked release work has been merged.
 
 ## Design objective
 
@@ -40,7 +55,7 @@ The framework must not hard-code assumptions specific to:
 
 ## Recommended architectural boundary
 
-A future implementation should expose these conceptual layers:
+The target framework boundary spans these conceptual layers:
 
 ```text
 COMS framework
@@ -127,7 +142,8 @@ Recommended treatment:
 
 ### Governed mapping records
 
-The framework should define a project-neutral mapping record containing:
+At the framework capability level, governed mapping processing needs to retain
+or derive:
 
 - RowID;
 - workbook location;
@@ -140,6 +156,11 @@ The framework should define a project-neutral mapping record containing:
 - assertion classification;
 - explanatory metadata;
 - product dispositions.
+
+The current architecture separates resolved semantic content in
+`GovernedMappingRecord` from source location, canonical audit results, and
+future product dispositions rather than combining them into one competing
+record model.
 
 The record must distinguish:
 
@@ -455,6 +476,12 @@ The following current assumptions must not become framework constants:
 
 ## Compilation and serialization
 
+The current implementation deliberately splits this capability list:
+`coms.mapping_compiler` serializes one governed record, and
+`coms.ontology_document` composes a publication header with caller-selected
+records. Product selection, file writing, validation evidence, transactional
+replacement, and freshness checks remain future work.
+
 Current sources:
 
 - `tools/generate_mapping_from_coms.py`;
@@ -741,13 +768,17 @@ implementation rather than only an internal library.
 - generalize package and archive layout;
 - generalize release rehearsal.
 
-### Phase 4: compiler extraction
+### Phase 4: compiler extraction (partially complete)
 
-- extract workbook parsing;
-- extract the mapping-expression model;
-- extract deterministic serialization;
-- extract the transaction engine;
-- preserve SSN output byte identity.
+The mapping-expression model, deterministic single-record serialization, and
+ontology-document composition portions are implemented. The original phase
+checklist now has this status:
+
+- extract workbook parsing — future;
+- extract the mapping-expression model — implemented;
+- extract deterministic serialization — implemented;
+- extract the transaction engine — future;
+- preserve SSN output byte identity — future.
 
 ### Phase 5: product architecture extraction
 
