@@ -17,6 +17,15 @@ from .mapping_expression import (
     canonicalize_expression,
     normalize_nfc as _nfc,
 )
+from .mapping_predicates import (
+    OWL_EQUIVALENT_CLASS,
+    OWL_EQUIVALENT_PROPERTY,
+    OWL_PROPERTY_CHAIN_AXIOM,
+    RDFS_DOMAIN,
+    RDFS_RANGE,
+    RDFS_SUBCLASS_OF,
+    RDFS_SUBPROPERTY_OF,
+)
 from .mapping_record import (
     GovernedMappingRecord,
 )
@@ -26,14 +35,6 @@ CANONICALIZATION_VERSION = "coms-row-expression-v1"
 ROW_ID_PATTERN = re.compile(
     r"^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-
-RDFS_SUBCLASS_OF = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
-RDFS_SUBPROPERTY_OF = "http://www.w3.org/2000/01/rdf-schema#subPropertyOf"
-RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain"
-RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range"
-OWL_EQUIVALENT_CLASS = "http://www.w3.org/2002/07/owl#equivalentClass"
-OWL_EQUIVALENT_PROPERTY = "http://www.w3.org/2002/07/owl#equivalentProperty"
-OWL_PROPERTY_CHAIN_AXIOM = "http://www.w3.org/2002/07/owl#propertyChainAxiom"
 
 MAPPING_TYPES = {
     "class_mapping",
