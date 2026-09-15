@@ -20,14 +20,15 @@ implementation started.
 The project-neutral core now implements configuration, publication-header
 rendering, mapping expressions, parsing and resolver contracts, governed
 mapping-record construction, canonical row identity, single-record Turtle
-compilation, and header-plus-body ontology-document composition.
+compilation, header-plus-body ontology-document composition, deterministic
+XLSX row extraction, and workbook-to-record semantic wiring.
 
 The broader capability boundary and extraction phases below remain useful as
-design rationale and roadmap context. Product-membership selection, source
-workbook adapters, file-writing transactions, cross-parser and reasoner
-orchestration, and release manifest/package/archive mechanics remain outside
-the implemented milestone. References to future phases do not imply that
-parked release work has been merged.
+design rationale and roadmap context. Product-membership selection,
+project-specific source resolvers, file-writing transactions, cross-parser and
+reasoner orchestration, and release manifest/package/archive mechanics remain
+outside the implemented milestone. References to future phases do not imply
+that parked release work has been merged.
 
 ## Design objective
 
@@ -774,7 +775,7 @@ The mapping-expression model, deterministic single-record serialization, and
 ontology-document composition portions are implemented. The original phase
 checklist now has this status:
 
-- extract workbook parsing — future;
+- extract configured XLSX workbook parsing — implemented;
 - extract the mapping-expression model — implemented;
 - extract deterministic serialization — implemented;
 - extract the transaction engine — future;

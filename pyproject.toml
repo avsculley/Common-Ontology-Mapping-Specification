@@ -9,6 +9,9 @@ description = "A specification and reusable framework for governed ontology mapp
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+xlsx = ["openpyxl>=3.1,<4"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
