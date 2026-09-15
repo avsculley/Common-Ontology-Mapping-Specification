@@ -21,7 +21,8 @@ The project-neutral core now implements configuration, publication-header
 rendering, mapping expressions, parsing and resolver contracts, governed
 mapping-record construction, canonical row identity, single-record Turtle
 compilation, header-plus-body ontology-document composition, deterministic
-XLSX row extraction, and workbook-to-record semantic wiring.
+XLSX row extraction, workbook-to-record semantic wiring, and deterministic
+workbook batch identity/audit orchestration.
 
 The broader capability boundary and extraction phases below remain useful as
 design rationale and roadmap context. Product-membership selection,
@@ -778,6 +779,7 @@ checklist now has this status:
 - extract configured XLSX workbook parsing — implemented;
 - extract the mapping-expression model — implemented;
 - extract deterministic serialization — implemented;
+- orchestrate selected workbook rows through identity and audit — implemented;
 - extract the transaction engine — future;
 - preserve SSN output byte identity — future.
 
