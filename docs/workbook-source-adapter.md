@@ -11,7 +11,7 @@ XLSX workbook
     ↓
 WorkbookSourceRow
     ↓
-future source and predicate resolution
+source resolution + predicate normalization
     ↓
 GovernedMappingRecord
 ```
